@@ -15,7 +15,7 @@ export function formatMidToolExitError(input: {
 }
 
 export function isOrdinaryToolForMidToolExit(toolName: string): boolean {
-	return toolName !== "intercom" && toolName !== "contact_supervisor";
+	return toolName !== "intercom" && toolName !== "contact_agent";
 }
 
 export function isUnexplainedProcessSignal(input: {

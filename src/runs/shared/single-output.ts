@@ -98,7 +98,7 @@ function formatOutputPathInstruction(outputPath: string, capabilities?: OutputIn
 		: [
 			"Return the complete artifact in your final response.",
 			`The runtime will persist it to exactly this path: ${outputPath}`,
-			"Do not call contact_supervisor merely because no write-capable tool is available.",
+			"Do not call contact_agent merely because no write-capable tool is available.",
 		].join("\n");
 	return [
 		delivery,

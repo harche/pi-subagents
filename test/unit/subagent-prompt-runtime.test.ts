@@ -232,7 +232,7 @@ describe("subagent prompt runtime", () => {
 		registerPermissionGate(pi as never, { rules: { write: "deny" } }, undefined);
 		assert.equal(handlers.length, 1);
 		assert.equal(await handlers[0]!({ toolName: "bash", input: { command: "rm -rf /" } }), undefined);
-		assert.equal(await handlers[0]!({ toolName: "contact_supervisor", input: {} }), undefined);
+		assert.equal(await handlers[0]!({ toolName: "contact_agent", input: {} }), undefined);
 		assert.deepEqual(await handlers[0]!({ toolName: "write", input: {} }), {
 			block: true,
 			reason: "Blocked by pi-subagents permission rule: 'write' is denied.",
@@ -794,7 +794,7 @@ describe("subagent prompt runtime", () => {
 			on(event: string, handler: (payload?: unknown) => unknown) {
 				handlers.set(event, handler);
 			},
-			getAllTools: () => [{ name: "intercom" }, { name: "contact_supervisor" }],
+			getAllTools: () => [{ name: "intercom" }, { name: "contact_agent" }],
 			registerTool(tool: { name: string }) {
 				registered.push(tool.name);
 			},
@@ -803,7 +803,9 @@ describe("subagent prompt runtime", () => {
 		assert.deepEqual(registered, ["bg_wait"]);
 		handlers.get("session_start")?.({});
 		await handlers.get("before_agent_start")?.({ systemPrompt: BASE_PROMPT });
-		assert.deepEqual(registered, ["bg_wait"]);
+		// contact_agent defers to an installed same-named tool; the other
+		// native peer tools still register.
+		assert.deepEqual(registered, ["bg_wait", "inbox"]);
 	});
 
 	it("does not satisfy strict allowlists with native generic intercom", () => {
@@ -827,12 +829,12 @@ describe("subagent prompt runtime", () => {
 			}));
 
 			handlers.get("session_start")?.({});
-			assert.deepEqual(registered, ["bg_wait", "contact_supervisor"]);
+			assert.deepEqual(registered, ["bg_wait", "contact_agent", "inbox"]);
 			assert.throws(() => handlers.get("agent_start")?.({}), /requested unavailable child tools: read, grep, find, ls, bash, edit, write, intercom/);
 			assert.deepEqual(diagnostics, [{
 				agent: "scout",
 				required: ["read", "grep", "find", "ls", "bash", "edit", "write", "intercom"],
-				available: ["bg_wait", "contact_supervisor"],
+				available: ["bg_wait", "contact_agent", "inbox"],
 				missing: ["read", "grep", "find", "ls", "bash", "edit", "write", "intercom"],
 			}]);
 		}
@@ -847,7 +849,7 @@ describe("subagent prompt runtime", () => {
 				on(event: string, handler: (payload?: unknown) => unknown) {
 					handlers.set(event, handler);
 				},
-				getAllTools: () => ["read", "grep", "find", "ls", "contact_supervisor"].map((name) => ({ name })),
+				getAllTools: () => ["read", "grep", "find", "ls", "contact_agent"].map((name) => ({ name })),
 				registerTool() {},
 			} as { on(event: string, handler: (payload?: unknown) => unknown): void; getAllTools(): Array<{ name: string }>; registerTool(): void }, childConfig({
 				agent: "worker",
@@ -859,13 +861,13 @@ describe("subagent prompt runtime", () => {
 			assert.deepEqual(diagnostics, [{
 				agent: "worker",
 				required: ["read", "grep", "find", "ls", "bash", "edit", "write"],
-				available: ["read", "grep", "find", "ls", "contact_supervisor"],
+				available: ["read", "grep", "find", "ls", "contact_agent"],
 				missing: ["bash", "edit", "write"],
 			}]);
 		}
 	});
 
-	it("keeps installed pi-intercom while filling only a missing child contact_supervisor tool", async () => {
+	it("keeps installed pi-intercom while filling only missing child contact tools", async () => {
 		const handlers = new Map<string, (payload?: unknown) => unknown>();
 		const registered: string[] = [];
 
@@ -882,7 +884,7 @@ describe("subagent prompt runtime", () => {
 		handlers.get("session_start")?.({});
 		await handlers.get("before_agent_start")?.({ systemPrompt: BASE_PROMPT });
 
-		assert.deepEqual(registered, ["bg_wait", "contact_supervisor"]);
+		assert.deepEqual(registered, ["bg_wait", "contact_agent", "inbox"]);
 	});
 
 	it("registers only native supervisor tools at runtime when pi-intercom is absent", async () => {
@@ -901,10 +903,10 @@ describe("subagent prompt runtime", () => {
 			} as { on(event: string, handler: (payload?: unknown) => unknown): void; getAllTools(): Array<{ name: string }>; registerTool(tool: { name: string }): void }, supervisorConfig());
 
 			handlers.get("session_start")?.({});
-			assert.deepEqual(registered, ["bg_wait", "contact_supervisor"]);
+			assert.deepEqual(registered, ["bg_wait", "contact_agent", "inbox"]);
 
 			await handlers.get("before_agent_start")?.({ systemPrompt: BASE_PROMPT });
-			assert.deepEqual(registered, ["bg_wait", "contact_supervisor"]);
+			assert.deepEqual(registered, ["bg_wait", "contact_agent", "inbox"]);
 		}
 	});
 
@@ -984,7 +986,7 @@ describe("subagent prompt runtime", () => {
 			on(event: string, handler: (payload: { systemPrompt: string }) => Promise<{ systemPrompt: string } | undefined>) {
 				if (event === "before_agent_start") beforeAgentStart = handler;
 			},
-			getAllTools: () => [{ name: "intercom" }, { name: "contact_supervisor" }],
+			getAllTools: () => [{ name: "intercom" }, { name: "contact_agent" }],
 			setSessionName(name: string) {
 				sessionName = name;
 			},
@@ -1001,7 +1003,7 @@ describe("subagent prompt runtime", () => {
 			on(event: string, handler: (payload: { systemPrompt: string }) => Promise<{ systemPrompt: string } | undefined>) {
 				if (event === "before_agent_start") beforeAgentStart = handler;
 			},
-			getAllTools: () => [{ name: "intercom" }, { name: "contact_supervisor" }],
+			getAllTools: () => [{ name: "intercom" }, { name: "contact_agent" }],
 		} as { on(event: string, handler: (payload: { systemPrompt: string }) => Promise<{ systemPrompt: string } | undefined>): void; getAllTools(): Array<{ name: string }> }, childConfig({ inheritProjectContext: false, inheritGlobalContext: true, inheritSkills: false }));
 
 		assert.ok(beforeAgentStart, "expected before_agent_start handler");
@@ -1019,7 +1021,7 @@ describe("subagent prompt runtime", () => {
 			on(event: string, handler: (payload: { systemPrompt: string }) => Promise<{ systemPrompt: string } | undefined>) {
 				if (event === "before_agent_start") beforeAgentStart = handler;
 			},
-			getAllTools: () => [{ name: "intercom" }, { name: "contact_supervisor" }],
+			getAllTools: () => [{ name: "intercom" }, { name: "contact_agent" }],
 		} as { on(event: string, handler: (payload: { systemPrompt: string }) => Promise<{ systemPrompt: string } | undefined>): void; getAllTools(): Array<{ name: string }> }, childConfig({ fanoutChild: true, inheritProjectContext: true, inheritGlobalContext: true, inheritSkills: true }));
 
 		const rewritten = await beforeAgentStart?.({ systemPrompt: BASE_PROMPT });

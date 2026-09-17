@@ -8,6 +8,7 @@ import { classifyTaskMutationIntent } from "../runs/shared/task-intent.ts";
 import { describeGateAcceptanceConflict } from "../runs/shared/acceptance.ts";
 import type { AcceptanceRecoveryMetadata, HostStepNode, SingleResult } from "../shared/types.ts";
 import { normalizeWorkflowHostCommandParams, type WorkflowHostCommandParams, type WorkflowHostCommandResult } from "./host-command.ts";
+import { buildRosterForBatch, buildSiblingRosterSection, stripSiblingRosterSection } from "../intercom/sibling-roster.ts";
 
 const KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const BASE_REF_VALIDATION_ERROR = "baseRef must be a valid Git ref: use HEAD or a supported named ref (for example, refs/heads/main). Full 40/64-character commit IDs and revision expressions are unsupported.";
@@ -88,8 +89,9 @@ function stableRunJson(value) {
 }
 
 function canonicalRunParams(params) {
-  if (params.gate === undefined || params.acceptance !== false) return params;
-  const { acceptance: _acceptance, ...withoutAcceptance } = params;
+  const { siblingRoster: _siblingRoster, ...withoutSibling } = params;
+  if (withoutSibling.gate === undefined || withoutSibling.acceptance !== false) return withoutSibling;
+  const { acceptance: _acceptance, ...withoutAcceptance } = withoutSibling;
   return withoutAcceptance;
 }
 
@@ -1274,6 +1276,11 @@ const RECOVERY_REVIEW_DESTRUCTIVE_COMMAND_PATTERN = /(?:^|[\s;,.`'"([{])(?:\S*\/
 const RECOVERY_REVIEW_DASH_LIVE_ACTION_PATTERN = /(?:[—–]|--|\s-\s|:|\s\/\s)\s*(?:then\s+)?(?:(?:add|append|apply|change|cherry[ -]pick|clean|commit|copy|create|delete|edit|fix|implement|insert|make|merge|move|modify|mutate|open|patch|prepend|push|rebase|refactor|remove|rename|replace|revert|revise|rewrite|save|stage|stash|tag|touch|update|write)\b|(?:launch|start|spawn|run)\b[^,.;!?\n]*(?:workers?|reviewers?|agents?|subagents?|children|child|runs?)\b|(?:\S*\/)?(?:rm|rmdir|unlink|truncate|mv|cp|chmod|chown)\b|git\b[^,.;!?\n]*\b(?:add|branch|cherry-pick|clean|commit|merge|rebase|reset|restore|revert|stash|tag|checkout|switch)\b)/i;
 
 function isExplicitReadOnlyRecoveryReview(params: Record<string, unknown>): boolean {
+	// Sibling roster goals may contain mutation verbs ("Implement ..."); classify
+	// the author's task only, never the injected roster.
+	if (typeof params.task === "string") {
+		params = { ...params, task: stripSiblingRosterSection(params.task) };
+	}
 	const agent = typeof params.agent === "string" ? params.agent.trim() : "";
 	const task = typeof params.task === "string" ? params.task.trim() : "";
 	const taskDestructiveCommandText = task
@@ -1476,8 +1483,9 @@ function stableJson(value: unknown): string {
 }
 
 function canonicalRunParams(params: Record<string, unknown>): Record<string, unknown> {
-	if (params.gate === undefined || params.acceptance !== false) return params;
-	const { acceptance: _acceptance, ...withoutAcceptance } = params;
+	const { siblingRoster: _siblingRoster, ...withoutSibling } = params;
+	if (withoutSibling.gate === undefined || withoutSibling.acceptance !== false) return withoutSibling;
+	const { acceptance: _acceptance, ...withoutAcceptance } = withoutSibling;
 	return withoutAcceptance;
 }
 
@@ -1974,6 +1982,36 @@ export async function runWorkflowScript(options: RunWorkflowScriptOptions): Prom
 	const children = new Map<string, WorkflowScriptChildResult>();
 	const childOrder: string[] = [];
 	const launches = new Map<string, { fingerprint: string; promise: Promise<WorkflowScriptChildResult>; observed: boolean; generatedLaneKey?: string }>();
+	/** Sibling roster history for this workflow invocation (opted-out launches are never recorded). */
+	const siblingHistory: Array<{ key: string; agent?: unknown; task?: unknown }> = [];
+	/**
+	 * Inject the same-workflow sibling roster into a child task (single source:
+	 * sibling-roster.ts). Opt-out via `siblingRoster: false` is receive- AND
+	 * send-side: opted-out children neither see peers nor appear in rosters.
+	 * The flag itself is always stripped before the host launch.
+	 */
+	const applySiblingRoster = (
+		selfKey: string,
+		launchParams: Record<string, unknown>,
+		batchCalls: Array<{ key: string; params: Record<string, unknown> }> | undefined,
+	): Record<string, unknown> => {
+		const { siblingRoster: _siblingRosterFlag, ...rest } = launchParams as Record<string, unknown> & { siblingRoster?: unknown };
+		if (launchParams.resume !== undefined) return rest;
+		const enabled = (launchParams as { siblingRoster?: unknown }).siblingRoster !== false;
+		const mates = (batchCalls ?? [])
+			.filter((call) => call.key !== selfKey && (call.params.siblingRoster as unknown) !== false)
+			.map((call) => ({ key: call.key, agent: call.params.agent, task: call.params.task }));
+		const roster = buildRosterForBatch([...siblingHistory, ...mates]);
+		if (enabled && typeof rest.task === "string") {
+			const section = buildSiblingRosterSection(roster, selfKey);
+			if (section) rest.task = `${rest.task}\n\n${section}`;
+		}
+		if (enabled && !siblingHistory.some((entry) => entry.key === selfKey)) {
+			siblingHistory.push({ key: selfKey, agent: launchParams.agent, task: launchParams.task });
+		}
+		return rest;
+	};
+	const siblingBatchCalls = (batch: { calls: Array<{ key: string; params: Record<string, unknown> }> } | undefined) => batch?.calls ?? undefined;
 	const steers = new Map<number, { key: string; promise: Promise<WorkflowSteerResult>; observed: boolean }>();
 	const hostCalls = new Map<number, { key: string; promise: Promise<WorkflowHostCommandResult>; observed: boolean }>();
 	const stoppedLaunches = new Set<string>();
@@ -2494,7 +2532,7 @@ export async function runWorkflowScript(options: RunWorkflowScriptOptions): Prom
 						if (predecessor?.continuation && predecessor.continuation.runIds.at(-1) === resolvedResumeId) resolvedResumeLineage = predecessor.continuation.runIds;
 					}
 				}
-				const launchParams = resolvedResumeId ? { ...params, resume: resolvedResumeId } : params;
+				const launchParams = applySiblingRoster(key, resolvedResumeId ? { ...params, resume: resolvedResumeId } : params, siblingBatchCalls(batch));
 				await launchSemaphore.acquire();
 				try {
 					if (settled || finishing || stoppedLaunches.has(key) || childSignal.aborted) {

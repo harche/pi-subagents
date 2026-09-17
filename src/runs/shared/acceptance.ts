@@ -27,6 +27,7 @@ import type {
 import { unresolvedChildWatchdogBlockers } from "../../watchdog/child-status.ts";
 import { isAgentContract } from "./agent-contract.ts";
 import { classifyTaskMutationIntent, stripSeverityCompounds, taskMayMutate } from "./task-intent.ts";
+import { stripSiblingRosterSection } from "../../intercom/sibling-roster.ts";
 
 const LEVEL_RANK: Record<Exclude<AcceptanceLevel, "auto">, number> = {
 	none: 0,
@@ -87,17 +88,18 @@ function inferLevel(input: {
 	dynamicGroup?: boolean;
 }): { level: Exclude<AcceptanceLevel, "auto">; reasons: string[]; criteria: string[]; evidence: AcceptanceEvidenceKind[]; review?: { agent?: string; required?: boolean } } {
 	const agent = input.agentName.toLowerCase();
-	const task = input.task?.toLowerCase() ?? "";
+	// Sibling roster goals must never flip intent inference: classify the author task only.
+	const task = stripSiblingRosterSection(input.task ?? "").toLowerCase();
 	const reasons: string[] = [];
 	// Declared roles replace name heuristics, so use the full writer grammar to detect explicit mutation independently of the actual agent name.
-	const intent = classifyTaskMutationIntent(input.acceptanceRole ? "worker" : input.agentName, input.task ?? "");
+	const intent = classifyTaskMutationIntent(input.acceptanceRole ? "worker" : input.agentName, stripSiblingRosterSection(input.task ?? ""));
 	const readOnlyTask = intent.kind === "read-only"
 		|| (intent.kind === "unknown" && /\b(?:read[- ]only|review[- ]only|no edits|without edits|inspect|summari[sz]e)\b/.test(task));
 	const rolePatchTask = input.acceptanceRole !== undefined
 		&& intent.kind !== "read-only"
 		&& !/\b(?:do not|don't|must not)\s+patch\b/.test(task)
 		&& /\bpatch\s+(?:(?:\.{0,2}[\\/])?(?:[\w.-]+[\\/])+[\w.-]+|[\w.-]+\.[a-z0-9]+\b|(?:the\s+)?parser\b)/.test(stripSeverityCompounds(task));
-	const taskMayWrite = readOnlyTask ? false : taskMayMutate(input.task ?? "") || intent.kind === "implementation" || rolePatchTask;
+	const taskMayWrite = readOnlyTask ? false : taskMayMutate(stripSiblingRosterSection(input.task ?? "")) || intent.kind === "implementation" || rolePatchTask;
 	const readOnlyAgent = input.acceptanceRole === "read-only"
 		|| (input.acceptanceRole === undefined && /\b(?:reviewer|oracle|scout|researcher|analyst)\b/.test(agent));
 	const writeTask = taskMayWrite

@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- Same-workflow sibling awareness: `workflowScript` children get a bounded roster of their peers and can message each other through `contact_agent({ to })`, answer asks with `contact_agent({ to, replyTo })`, and read `inbox`, a durable record of everything addressed to them including supervisor steers and replies. Asks are relayed by the parent, blocking asks escalate to the supervisor on timeout, and a supervisor-relayed consult can name the sibling it concerns with `about`. Opt a child out with `siblingRoster: false`. See [docs/workflows.md](docs/workflows.md#sibling-coordination-children-in-one-workflow).
+
+### Changed
+
+- `contact_supervisor` is now `contact_agent`. An omitted `to` still addresses the supervisor, and the old name keeps working in agent `tools` and `excludeTools` lists.
+
 ### Fixed
 
 - The Ghostty inspector no longer takes over when `TERM_PROGRAM=ghostty` comes from a terminal that embeds the Ghostty kernel (such as cmux) instead of the standalone Ghostty app. Availability now requires the macOS host bundle id (`__CFBundleIdentifier`) to identify Ghostty itself; absent or different host identity declines to the `inspector.command` hint instead of targeting an unrelated Ghostty window or emitting `-1728`/`-2741` AppleScript errors. Thanks to [@wangpi26](https://github.com/wangpi26) for #2281.

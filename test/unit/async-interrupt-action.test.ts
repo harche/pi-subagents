@@ -15,6 +15,7 @@ import { readProcessTerminal } from "../../src/runs/background/process-terminal.
 import { reconcileAsyncRun } from "../../src/runs/background/stale-run-reconciler.ts";
 import { inspectSubagentStatus } from "../../src/runs/background/run-status.ts";
 import { createSubagentExecutor, steerWorkflowChildByKey } from "../../src/runs/foreground/subagent-executor.ts";
+import { listInbox, siblingRootDir } from "../../src/intercom/sibling-channels.ts";
 import { resolveExternalCliRunnerStatus } from "../../src/runs/shared/external-cli-contract.ts";
 import { steerWorkflowForegroundTarget } from "../../src/runs/foreground/workflow-foreground-steering.ts";
 import { ASYNC_DIR, RESULTS_DIR, type ForegroundChildControl, type ForegroundSteerInput, type SubagentState } from "../../src/shared/types.ts";
@@ -286,6 +287,26 @@ describe("async interrupt action", () => {
 			assert.deepEqual(steers, [{ message: "Focus on the contract." }]);
 		} finally {
 			cleanup(workflowRunId, asyncDir);
+		}
+	});
+
+	it("files a supervisor-originated workflow-key steer into the child's inbox", async () => {
+		const state = createState();
+		state.currentSessionId = `steer-inbox-${Date.now().toString(36)}`;
+		const workflowRunId = `workflow-key-inbox-${Date.now().toString(36)}`;
+		const childRunId = `${workflowRunId}-writer`;
+		const asyncDir = createRunningAsync(state, workflowRunId, { track: false, mode: "workflow" });
+		createWorkflowForegroundControl(state, workflowRunId, childRunId);
+		try {
+			const relayed = await steerWorkflowChildByKey({ state, workflowRunId, key: childRunId, message: "peer ask", options: { ackTimeoutMs: 500 } });
+			assert.equal(relayed.state, "delivered");
+			const supervised = await steerWorkflowChildByKey({ state, workflowRunId, key: childRunId, message: "Supervisor says: narrow scope.", options: { ackTimeoutMs: 500 }, recordAsSupervisor: true });
+			assert.equal(supervised.state, "delivered");
+			const entries = listInbox({ session: state.currentSessionId, workflow: workflowRunId }, childRunId);
+			assert.deepEqual(entries.map((entry) => [entry.kind, entry.message]), [["supervisor", "Supervisor says: narrow scope."]]);
+		} finally {
+			cleanup(workflowRunId, asyncDir);
+			fs.rmSync(path.join(siblingRootDir(), `s-${state.currentSessionId}`), { recursive: true, force: true });
 		}
 	});
 

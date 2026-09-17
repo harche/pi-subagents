@@ -35,7 +35,7 @@ import { openSubagentFleet } from "../tui/fleet.ts";
 import { createBuiltinInspectorPlugins } from "../inspectors/plugins.ts";
 import { SubagentFleetStatus, resolveFleetViewPlacement } from "../tui/fleet-status.ts";
 import { createSubagentParamsSchema } from "./schemas.ts";
-import { createSubagentExecutor, type SubagentParamsLike } from "../runs/foreground/subagent-executor.ts";
+import { createSubagentExecutor, steerWorkflowChildByKey, type SubagentParamsLike } from "../runs/foreground/subagent-executor.ts";
 import { createAsyncJobTracker } from "../runs/background/async-job-tracker.ts";
 import { getActiveAsyncCapacitySnapshot, resolveAbandonedSlotReleaseAfterMs, resolveMaxActiveAsyncRunsPerSession } from "../runs/background/active-async-capacity.ts";
 import { cleanupResultIndexes, missionObserverResultCandidateFiles } from "../runs/background/result-files.ts";
@@ -48,6 +48,7 @@ import { registerPromptTemplateDelegationBridge } from "../slash/prompt-template
 import { registerMainWatchdog } from "../watchdog/register-main.ts";
 import { registerSlashSubagentBridge } from "../slash/slash-bridge.ts";
 import { createNativeSupervisorChannel } from "../intercom/native-supervisor-channel.ts";
+import { createSiblingRelay } from "../intercom/sibling-relay.ts";
 import {
 	renderSupervisorReply,
 	renderSupervisorRequest,
@@ -489,6 +490,13 @@ export default function registerSubagentExtension(pi: ExtensionAPI): void {
 	const supervisorChannel = createNativeSupervisorChannel(pi, state, {
 		getCurrentOwnerStates: () => executor.getCurrentSupervisorOwnerStates(),
 	});
+	const siblingRelay = createSiblingRelay(pi, {
+		state,
+		steer: (workflowRunId, key, message) =>
+			steerWorkflowChildByKey({ state, workflowRunId, key, message, options: { mode: "auto" } }).then(
+				(receipt) => ({ state: receipt.state, ...(receipt.error ? { error: receipt.error } : {}) }),
+			),
+	});
 	const waitSubscriptionManager = createWaitSubscriptionManager(pi, state);
 	const mainWatchdog = registerMainWatchdog(pi);
 	const resultDeliveryOwnership = createResultDeliveryOwnership(state);
@@ -880,6 +888,7 @@ export default function registerSubagentExtension(pi: ExtensionAPI): void {
 	const asyncStartedHandler = (payload: unknown) => {
 		handleStarted(payload);
 		supervisorChannel.activateTransport();
+		siblingRelay.activateTransport();
 		refreshResultDelivery();
 		fleetStatus?.refresh();
 	};
@@ -1059,6 +1068,7 @@ export default function registerSubagentExtension(pi: ExtensionAPI): void {
 			mainWatchdog.dispose();
 			scheduledRunManager.stop();
 			supervisorChannel.dispose();
+			siblingRelay.dispose();
 			waitSubscriptionManager.dispose();
 			fleetStatus?.dispose();
 			disposeAsyncJobTracker();
@@ -1186,6 +1196,8 @@ export default function registerSubagentExtension(pi: ExtensionAPI): void {
 		rpcBridge.emitReady(ctx);
 		supervisorChannel.start();
 		supervisorChannel.activateTransport();
+		siblingRelay.start();
+		siblingRelay.activateTransport();
 	});
 
 	pi.on("session_shutdown", async () => {

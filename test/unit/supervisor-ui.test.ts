@@ -25,6 +25,31 @@ function renderReply(data: SupervisorReplyEntryData, width = 100): string[] {
 }
 
 describe("native supervisor UI", () => {
+	it("preserves a sibling consult target from request through reply", () => {
+		const request = renderRequest({
+			id: "req-sib",
+			reason: "need_decision",
+			expectsReply: true,
+			runId: "run-9",
+			agent: "worker",
+			childIndex: 1,
+			siblingTarget: "ui",
+			replyHint: `subagent_supervisor({ action: "reply", replyTo: "req-sib", message: "..." })`,
+			requestBody: "SIBLING ui: question?",
+		}, "body");
+		assert.match(request.join("\n"), /Sibling consult: ui/);
+		const reply = renderReply({
+			requestId: "req-sib",
+			reason: "need_decision",
+			siblingTarget: "ui",
+			runId: "run-9",
+			agent: "worker",
+			childIndex: 1,
+			message: "go ahead",
+			createdAt: 123,
+		});
+		assert.match(reply.join("\n"), /Sibling consult: ui/);
+	});
 	it("renders request metadata, interview shape, and an exact reply hint", () => {
 		const requestId = "request-123456";
 		const output = renderRequest({

@@ -245,7 +245,7 @@ A strong subagent prompt usually includes:
 - **Hard constraints**: true invariants only, such as no edits for review-only tasks, one writer thread, child must not run subagents unless it is explicitly authorized through `tools: subagent` or `allowNestedSubagents: true`, or escalation for unapproved decisions.
 - **Validation**: targeted checks to run, or the next-best check when validation is impossible.
 - **Output**: the expected summary shape, artifact path, or finding format. Use managed artifact paths for scratch reports; reserve repo-qualified absolute paths for durable handoffs that the user approved.
-- **Stop rules**: when to ask via `intercom` or `contact_supervisor`, when to stop after enough evidence, and when not to keep searching.
+- **Stop rules**: when to ask via `intercom` or `contact_agent`, when to stop after enough evidence, and when not to keep searching.
 
 Give each role useful discovery anchors. Name source roots, filenames, symbols, types, methods, and paths for scouts. Give workers context files, plans, task paths, and named source seams before asking them to search. Give reviewers changed files, contracts, and any exhaustive-verification target. Tell oracle whether current source behavior, product/policy documents, plans, or inherited decisions are the evidence that matters.
 

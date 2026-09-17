@@ -137,8 +137,8 @@ Project prompt.
 			assert.deepEqual(result.contract.skills.requested, ["project-skill"]);
 			assert.equal(result.contract.skills.resolved[0]?.name, "project-skill");
 			assert.deepEqual(result.contract.tools.effectiveAllowlist, ["read"]);
-			// The bridge adds contact_supervisor before the ceiling applies, exactly as execution does.
-			assert.deepEqual(result.contract.tools.capabilityAudit?.removedTools, ["write", "contact_supervisor"]);
+			// The bridge adds contact_agent before the ceiling applies, exactly as execution does.
+			assert.deepEqual(result.contract.tools.capabilityAudit?.removedTools, ["write", "contact_agent", "inbox"]);
 			assert.equal(result.contract.tools.capabilityAudit?.removedExtensionCount, 1);
 			assert.deepEqual(result.contract.intercomBridge, { mode: "always", active: true });
 			assert.equal(result.contract.tools.disableAmbientExtensions, true);
@@ -757,7 +757,7 @@ Project prompt.
 		assert.equal(result.ok, true);
 		assert.equal(result.contract.context, "fork");
 		assert.ok(result.contract.diagnostics.some((diagnostic) => diagnostic.code === "host_required"));
-		assert.deepEqual(result.contract.tools.declaredBuiltin, ["read", "subagent", "contact_supervisor"]);
+		assert.deepEqual(result.contract.tools.declaredBuiltin, ["read", "subagent", "contact_agent", "inbox"]); // legacy declared name maps to contact_agent
 		assert.equal(result.contract.tools.explicitAllowlist, true);
 		assert.equal(result.contract.tools.fanoutAuthorized, true);
 		assert.deepEqual(result.contract.tools.internalTools, ["structured_output"]);
@@ -808,7 +808,7 @@ Project prompt.
 		assert.equal(result.ok, true);
 		if (!result.ok) return;
 		assert.deepEqual(result.contract.tools.excludeTools, ["write", "unknown_tool"]);
-		assert.deepEqual(result.contract.tools.effectiveAllowlist, ["read", "contact_supervisor"]);
+		assert.deepEqual(result.contract.tools.effectiveAllowlist, ["read", "contact_agent", "inbox"]);
 		assert.match(result.contract.launchContractDigest, /^[a-f0-9]{64}$/);
 	});
 
@@ -828,7 +828,7 @@ Project prompt.
 		assert.equal(base.ok, true);
 		if (!base.ok) return;
 		assert.deepEqual(base.contract.intercomBridge, { mode: "always", active: true });
-		assert.ok(base.contract.tools.effectiveAllowlist.includes("contact_supervisor"));
+		assert.ok(base.contract.tools.effectiveAllowlist.includes("contact_agent"));
 		assert.equal(base.contract.diagnostics.some((diagnostic) => /orchestratorTarget/.test(diagnostic.message)), false);
 
 		// The default template never names the parent session, so a host that
@@ -842,7 +842,7 @@ Project prompt.
 		assert.equal(off.ok, true);
 		if (!off.ok) return;
 		assert.deepEqual(off.contract.intercomBridge, { mode: "off", active: false });
-		assert.equal(off.contract.tools.effectiveAllowlist.includes("contact_supervisor"), false);
+		assert.equal(off.contract.tools.effectiveAllowlist.includes("contact_agent"), false);
 		assert.notEqual(off.contract.launchContractDigest, base.contract.launchContractDigest);
 		assert.equal(off.contract.agent.definitionDigest, base.contract.agent.definitionDigest);
 

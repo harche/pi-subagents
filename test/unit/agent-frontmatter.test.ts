@@ -669,12 +669,12 @@ Do work
 		}
 		const oracle = agents.find((candidate) => candidate.name === "oracle");
 		assert.deepEqual(oracle?.aliases, ["advisor"]);
-		assert.doesNotMatch(oracle?.tools?.join(",") ?? "", /contact_supervisor/);
+		assert.doesNotMatch(oracle?.tools?.join(",") ?? "", /contact_agent/);
 		for (const name of ["scout", "researcher", "oracle", "reviewer"]) {
 			assert.equal(agents.find((candidate) => candidate.name === name)?.tools?.includes("intercom"), false, `${name} should not require generic intercom`);
 		}
 		assert.match(oracle?.systemPrompt ?? "", /asking or consulting the oracle/);
-		assert.match(oracle?.systemPrompt ?? "", /When runtime bridge instructions provide `contact_supervisor`/);
+		assert.match(oracle?.systemPrompt ?? "", /When runtime bridge instructions provide `contact_agent`/);
 		assert.match(oracle?.systemPrompt ?? "", /If no supervisor channel is available/);
 		assert.equal(agents.some((candidate) => candidate.name === "planner"), false);
 		assert.equal(agents.some((candidate) => candidate.name === "context-builder"), false);
@@ -1814,6 +1814,25 @@ Do work
 		assert.deepEqual(allowed.session.hooks.map((hook) => hook.name), ["pi-subagents:prompt-runtime", "pi-subagents:fast-mode"]);
 		assert.throws(() => buildInProcessChildLaunch({ ...launch, model: "anthropic/claude-sonnet-4" }), /fast mode supports only/);
 	});
+
+	it("threads per-tool sibling exclusions and honors the legacy supervisor name", () => {
+		const launch = {
+			host: "parent" as const,
+			cwd: process.cwd(),
+			sessionEnabled: false,
+			inheritProjectContext: false,
+			inheritGlobalContext: false,
+			inheritSkills: false,
+			childAgentName: "worker",
+			childIndex: 0,
+		};
+		const partial = buildInProcessChildLaunch({ ...launch, excludeTools: ["inbox"] });
+		assert.deepEqual(partial.config.siblingToolsExcluded, ["inbox"]);
+		const legacy = buildInProcessChildLaunch({ ...launch, excludeTools: ["contact_supervisor"] });
+		assert.deepEqual(legacy.config.siblingToolsExcluded, ["contact_agent"]);
+		const none = buildInProcessChildLaunch({ ...launch, excludeTools: ["write"] });
+		assert.equal(none.config.siblingToolsExcluded, undefined);
+	});
 });
 
 describe("agent frontmatter prompt assembly defaults", () => {
@@ -1902,10 +1921,10 @@ Do work
 			process.env.USERPROFILE = homeDir;
 			const agents = discoverAgentsAll(dir).builtin;
 			const expectedTools = {
-				worker: ["read", "grep", "find", "ls", "bash", "edit", "write", "contact_supervisor"],
-				delegate: ["read", "grep", "find", "ls", "bash", "edit", "write", "contact_supervisor"],
-				reviewer: ["read", "grep", "find", "ls", "contact_supervisor"],
-				scout: ["read", "grep", "find", "ls", "bash", "write", "contact_supervisor"],
+				worker: ["read", "grep", "find", "ls", "bash", "edit", "write", "contact_agent"],
+				delegate: ["read", "grep", "find", "ls", "bash", "edit", "write", "contact_agent"],
+				reviewer: ["read", "grep", "find", "ls", "contact_agent"],
+				scout: ["read", "grep", "find", "ls", "bash", "write", "contact_agent"],
 				researcher: ["read", "write", "web_search", "fetch_content", "get_search_content", "source_check"],
 				"evidence-auditor": ["read", "web_search", "fetch_content", "get_search_content", "source_check"],
 			};

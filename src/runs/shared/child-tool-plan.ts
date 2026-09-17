@@ -419,9 +419,14 @@ export function resolvePiLaunchToolPlan(
 	const unavailableHostBuiltins = hostAvailableSet
 		? ceilingFilteredBuiltinTools.filter((tool) => PI_BUILTIN_TOOL_NAMES.has(tool) && !hostAvailableSet.has(tool))
 		: [];
-	const excludeTools = [...new Set((input.excludeTools ?? []).map((tool) => tool.trim()).filter(Boolean))];
+	// contact_supervisor was renamed to contact_agent; an exclusion of the old name still excludes the new tool.
+	const excludeTools = [...new Set((input.excludeTools ?? []).map((tool) => tool.trim()).filter(Boolean).map((tool) => (tool === "contact_supervisor" ? "contact_agent" : tool)))];
 	const excludedToolSet = new Set(excludeTools);
-	const effectiveDeclaredBuiltinTools = declaredBuiltinTools.filter((tool) => !excludedToolSet.has(tool));
+	const effectiveDeclaredBuiltinTools = declaredBuiltinTools
+		.filter((tool) => !excludedToolSet.has(tool))
+		// contact_supervisor was renamed to contact_agent (supervisor address);
+		// old declarations keep working as the unified tool.
+		.map((tool) => (tool === "contact_supervisor" ? "contact_agent" : tool));
 	const fanoutAuthorized = effectiveDeclaredBuiltinTools.includes("subagent") || (
 		input.allowNestedSubagents === true &&
 		!excludedToolSet.has("subagent") &&
@@ -471,19 +476,19 @@ export function resolvePiLaunchToolPlan(
 		]),
 	];
 	// Upward contact stays in the --tools allowlist but is not a strict
-	// requirement: children register contact_supervisor at runtime through
-	// the native supervisor channel (or pi-intercom). The pre-0.50 bridge always
-	// appended intercom alongside contact_supervisor, so that exact pairing is
-	// legacy plumbing, not a user demand for an external intercom provider;
-	// a lone intercom entry stays strictly required (#1207).
-	const legacySupervisorPairing = effectiveDeclaredBuiltinTools.includes("contact_supervisor");
+	// requirement: children register contact_agent at runtime through the
+	// native channel (or pi-intercom). The pre-0.50 bridge always appended
+	// intercom alongside contact_supervisor (now contact_agent), so that exact
+	// pairing is legacy plumbing, not a user demand for an external intercom
+	// provider; a lone intercom entry stays strictly required (#1207).
+	const legacySupervisorPairing = declaredBuiltinTools.includes("contact_supervisor");
 	const requiredChildTools = explicitToolAllowlist
 		? [
 				...new Set([
 					...(input.tools !== undefined ? effectiveDeclaredBuiltinTools : []),
 					...(input.mcpDirectTools?.length ? effectiveMcpTools : []),
 					...internalTools,
-				].filter((tool) => tool !== "contact_supervisor" && (!legacySupervisorPairing || tool !== "intercom"))),
+				].filter((tool) => tool !== "contact_agent" && tool !== "inbox" && (!legacySupervisorPairing || tool !== "intercom"))),
 			]
 		: [];
 	const permSystemExt = capabilityCeiling?.denyExtensions

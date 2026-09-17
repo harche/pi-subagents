@@ -38,7 +38,7 @@ describe("child runtime config", () => {
 	});
 
 	it("provides the coordinator reply tool before agent_start without granting it to leaves", async () => {
-		for (const tools of [["subagent", "contact_supervisor", "subagent_supervisor"], ["subagent", "contact_supervisor"], ["contact_supervisor"]]) {
+		for (const tools of [["subagent", "contact_agent", "subagent_supervisor"], ["subagent", "contact_agent"], ["contact_agent"]]) {
 			const launch = buildInProcessChildLaunch({
 				host: "parent", cwd: process.cwd(), childAgentName: "coordinator", childIndex: 0,
 				sessionEnabled: false, tools, runId: "registration", parentSessionId: "root-A",

@@ -259,7 +259,7 @@ Preflight covers ordinary single-agent launch resolution:
 - Selected agent identity and shadowed candidates.
 - A parsed-definition digest, including system prompt and launch-affecting model, tool, skill, extension, output, and memory fields. Runtime overlays such as the Intercom bridge never change it.
 - Fresh/fork context, effective model and thinking, skill and tool resolution, direct MCP selections, runtime/configured extensions.
-- The resolved Intercom bridge state (`intercomBridge.mode` and `intercomBridge.active`). An active bridge appends the bridge instruction to the child prompt and adds `contact_supervisor` to a declared tool list, exactly as execution does.
+- The resolved Intercom bridge state (`intercomBridge.mode` and `intercomBridge.active`). An active bridge appends the bridge instruction to the child prompt and adds `contact_agent` to a declared tool list, exactly as execution does.
 - Artifact/session paths, async lifecycle/status/result/event/process-terminal paths, package/lifecycle versions, capability-ceiling audit data, and stable digests.
 
 `launchContractDigest` is the canonical digest of the caller task, effective system prompt (including an active bridge instruction), model candidates, effective tools/extensions/MCP (including inherited capability ceilings and the bridge tool), output binding, and structured-output schema that ordinary foreground and async execution report in results/status/events and metadata. Preflight and each execution path that reports the digest assemble it through one shared binding, so equal inputs produce equal digests.
@@ -525,7 +525,7 @@ When pi-subagents runs inside a compatible pi-web host, it discovers the version
 If your host reclaims idle sessions, keep a session alive while it still has live detached work:
 
 - Read run state from the status files under the async run directory rather than from event traffic. A long, quiet workflow sends almost nothing to the parent, so recent-activity heuristics conclude the wrong thing.
-- Treat `queued` and `running` as live, matching `isActiveAsyncState`. An interrupted run that is `paused` is finalized. A workflow that paused because a child used `contact_supervisor` still has a live child; keep that parent session until reconcile writes `complete` or `failed`.
+- Treat `queued` and `running` as live, matching `isActiveAsyncState`. An interrupted run that is `paused` is finalized. A workflow that paused because a child used `contact_agent` still has a live child; keep that parent session until reconcile writes `complete` or `failed`.
 - Do not treat `lastUpdate` as a heartbeat. The runner advances it in memory every second but only rewrites `status.json` when the activity classification changes, so a live run inside one long quiet tool call leaves a stale file behind. Judging liveness by file age will reap exactly the run you meant to protect.
 - Prefer the recorded runner `pid`, which stays true through a silent tool call and goes false when the runner dies. Keep file age only as a fallback for runs that record no pid, and give it a wide window.
 - Match `sessionId` in `status.json` against both forms. It is resolved as `getSessionFile() ?? getSessionId()`, so it is normally the parent's session *file path*, but a session that is not persisted records a bare session id instead.

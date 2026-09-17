@@ -10,9 +10,9 @@ import {
 	NATIVE_SUPERVISOR_TOOL_NAME,
 	createNativeSupervisorChannel,
 	ensureSupervisorChannelDir,
-	registerNativeSupervisorClient,
 	resolveSupervisorChannelDir,
 } from "../../src/intercom/native-supervisor-channel.ts";
+import { registerSiblingTools } from "../../src/intercom/sibling-tools.ts";
 import { steerWorkflowForegroundTarget } from "../../src/runs/foreground/workflow-foreground-steering.ts";
 import { createSubagentExecutor } from "../../src/runs/foreground/subagent-executor.ts";
 import type { ForegroundRunControl, ForegroundSteerInput, SubagentState } from "../../src/shared/types.ts";
@@ -59,7 +59,7 @@ function makeCtx(sessionId: string, sessionFile: string | null = null): { cwd: s
 }
 
 /**
- * Write an ask directly to the channel the way a child's `contact_supervisor` call does, without
+ * Write an ask directly to the channel the way a child's `contact_agent` call does, without
  * going through a live poller. This is the state the wave-11 incident was in: the request file was
  * on disk and no scan had happened yet.
  */
@@ -200,7 +200,7 @@ describe("supervisor ask registration", () => {
 			const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
 			process.env.PI_CODING_AGENT_DIR = root;
 			fs.mkdirSync(path.join(root, "agents"), { recursive: true });
-			fs.writeFileSync(path.join(root, "agents", "leaf.md"), "---\nname: leaf\ndescription: Read-only leaf\ntools: read, contact_supervisor\nmodel: mock/test-model\n---\nInspect only.\n");
+			fs.writeFileSync(path.join(root, "agents", "leaf.md"), "---\nname: leaf\ndescription: Read-only leaf\ntools: read, contact_agent\nmodel: mock/test-model\n---\nInspect only.\n");
 			const launch = buildInProcessChildLaunch({
 				host: "parent", cwd: root, childAgentName: "coordinator", childIndex: 0,
 				sessionEnabled: false, tools: ["subagent", "subagent_supervisor"],
@@ -226,7 +226,7 @@ describe("supervisor ask registration", () => {
 						abort: async () => { abort.abort(); }, dispose: () => leaf.emit("session_shutdown"),
 						async prompt() {
 							await leaf.emit("agent_start");
-							await leaf.call("contact_supervisor", { reason: "progress_update", message: "Inspection complete." });
+							await leaf.call("contact_agent", { reason: "progress_update", message: "Inspection complete." });
 							await leaf.emit("message_end", { message: { role: "assistant", content: [{ type: "text", text: "Inspection complete." }], model: "mock/test-model", stopReason: "stop", usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } } } });
 							await leaf.emit("agent_end");
 							await leaf.emit("agent_settled");
@@ -336,7 +336,7 @@ describe("supervisor ask registration", () => {
 			process.env.PI_CODING_AGENT_DIR = root;
 			const agentsDir = path.join(root, "agents");
 			fs.mkdirSync(agentsDir, { recursive: true });
-			fs.writeFileSync(path.join(agentsDir, "leaf.md"), "---\nname: leaf\ndescription: Read-only leaf\ntools: read, contact_supervisor\nmodel: mock/test-model\n---\nInspect only.\n");
+			fs.writeFileSync(path.join(agentsDir, "leaf.md"), "---\nname: leaf\ndescription: Read-only leaf\ntools: read, contact_agent\nmodel: mock/test-model\n---\nInspect only.\n");
 			const a = randomUUID();
 			const parentTools = new Map<string, SupervisorTool>();
 			const parent = createNativeSupervisorChannel(makePi({ tools: parentTools }) as never, makeState(a, makeCtx(a)), { platform });
@@ -384,7 +384,7 @@ describe("supervisor ask registration", () => {
 								assert.equal(cReturned, false);
 								await assert.rejects(parentTools.get(NATIVE_SUPERVISOR_TOOL_NAME)!.execute("foreign", { action: "reply", replyTo: cRequest, message: "A cannot answer C" }), /No pending supervisor request found/);
 								await assert.rejects(runtime.call(NATIVE_SUPERVISOR_TOOL_NAME, { action: "reply", replyTo: "wrong-request-id", message: "Wrong" }), /No pending supervisor request found/);
-								const escalation = await runtime.call("contact_supervisor", { reason: "need_decision", message: "C needs a choice; may I approve option A?" });
+								const escalation = await runtime.call("contact_agent", { reason: "need_decision", message: "C needs a choice; may I approve option A?" });
 								assert.match(text(escalation), /Approve option A/);
 								assert.equal(cReturned, false, "A's answer to B must not unblock C");
 								const reply = await runtime.call(NATIVE_SUPERVISOR_TOOL_NAME, { action: "reply", replyTo: cRequest, message: "Use option A" });
@@ -395,7 +395,7 @@ describe("supervisor ask registration", () => {
 								assert.equal(launch.runtime.orchestratorSessionId, runtimes[0]!.owner, "C belongs to B's exact runtime id, not A or B's file");
 								assert.equal(runtime.registered.has(NATIVE_SUPERVISOR_TOOL_NAME), false, "leaf must not get downward authority");
 								await new Promise(resolve => setTimeout(resolve, 25));
-								const reply = await runtime.call("contact_supervisor", { reason: "need_decision", message: "Which option?" });
+								const reply = await runtime.call("contact_agent", { reason: "need_decision", message: "Which option?" });
 								assert.equal(reply.details.requestId, cRequest);
 								assert.match(text(reply), /Use option A/);
 								cReturned = true;
@@ -411,7 +411,7 @@ describe("supervisor ask registration", () => {
 			try {
 				parent.start();
 				setChildSessionFactory(factory);
-				const run = runSync(root, [makeAgent("coordinator", { model: "mock/test-model", tools: ["read", "subagent", "contact_supervisor", "subagent_supervisor"] })], "coordinator", "Inspect read-only with the assigned leaf.", {
+				const run = runSync(root, [makeAgent("coordinator", { model: "mock/test-model", tools: ["read", "subagent", "contact_agent", "subagent_supervisor"] })], "coordinator", "Inspect read-only with the assigned leaf.", {
 					runId: randomUUID(), parentSessionId: a, orchestratorIntercomTarget: "shared-name", signal: abort.signal,
 				});
 				await waitForCondition(() => runtimes.length > 0, "coordinator startup");
@@ -468,16 +468,16 @@ describe("supervisor ask registration", () => {
 		const channelDir = resolveSupervisorChannelDir(runId, "leaf", 0);
 		createdChannels.push(channelDir);
 		const childTools = new Map<string, SupervisorTool>();
-		registerNativeSupervisorClient(makePi({ tools: childTools }) as never, { channelDir, runId, agent: "leaf", childIndex: 0, orchestratorSessionId: runtime.owner });
+		registerSiblingTools(makePi({ tools: childTools }) as never, { channelDir, runId, agent: "leaf", childIndex: 0, orchestratorSessionId: runtime.owner }, { sibling: { workflowRunId: "wf-test", selfKey: "leaf" } });
 		let request: Promise<{ content: Array<{ type: string; text?: string }> }> | undefined;
-		const contact = childTools.get("contact_supervisor") as unknown as {
-			execute(id: string, params: { reason: string; message: string }, signal: AbortSignal): NonNullable<typeof request>;
+		const contact = childTools.get("contact_agent") as unknown as {
+			execute(id: string, params: { to: string; reason: string; message: string }, signal: AbortSignal): NonNullable<typeof request>;
 		};
 		try {
 			await runtime.emit("session_start");
 			fs.writeFileSync(path.join(root, "status.json"), JSON.stringify({ runId, state: "running" }));
 			runtime.events.emit(SUBAGENT_ASYNC_STARTED_EVENT, { id: runId, asyncDir: root, agent: "leaf", sessionId: runtime.sessionFile });
-			request = contact.execute("ask", { reason: "need_decision", message: "Which option?" }, abort.signal);
+			request = contact.execute("ask", { to: "supervisor", reason: "need_decision", message: "Which option?" }, abort.signal);
 			// Attach rejection handling before any assertion can abort the child.
 			void request!.catch(() => {});
 			await waitForCondition(() => runtime.notices.length > 0, "direct async ask notification");
@@ -1029,7 +1029,7 @@ describe("supervisor ask registration", () => {
 	});
 
 	// Drive the real child-side disk protocol: steering cannot resolve asks, explicit reply can.
-	it("only unblocks the real contact_supervisor tool through an explicit reply, not steer or follow_up", async () => {
+	it("only unblocks the real contact_agent tool through an explicit reply, not steer or follow_up", async () => {
 		const sessionId = `session-${randomUUID()}`;
 		const workflowRunId = `workflow-${randomUUID()}`;
 		const channelDir = resolveSupervisorChannelDir(workflowRunId, "worker", 0);
@@ -1050,13 +1050,13 @@ describe("supervisor ask registration", () => {
 
 		try {
 			channel.start();
-			registerNativeSupervisorClient(makePi({ tools: childTools }) as never, {
+			registerSiblingTools(makePi({ tools: childTools }) as never, {
 				channelDir,
 				runId: workflowRunId,
 				agent: "worker",
 				childIndex: 0,
 				orchestratorSessionId: sessionId,
-			});
+			}, { sibling: { workflowRunId: "wf-test", selfKey: "worker" } });
 			const target = { control, workflowRunId, sourceRunId: workflowRunId };
 			const ordinary = await steerWorkflowForegroundTarget({ target, message: "No ask is open here." });
 			assert.equal(ordinary.details.steering?.state, "pending");
@@ -1065,8 +1065,8 @@ describe("supervisor ask registration", () => {
 
 			// The child blocks here exactly as it does in production: inside an open tool call,
 			// polling its reply file.
-			const blocked = childTools.get("contact_supervisor")!.execute("ask", {
-				action: "ask",
+			const blocked = childTools.get("contact_agent")!.execute("ask", {
+				to: "supervisor",
 				reason: "need_decision",
 				message: "Which option should I take?",
 			} as never);

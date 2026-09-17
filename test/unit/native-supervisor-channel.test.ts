@@ -9,7 +9,6 @@ import {
 	NATIVE_SUPERVISOR_TOOL_NAME,
 	createNativeSupervisorChannel,
 	ensureSupervisorChannelDir,
-	registerNativeSupervisorClient,
 	resolveSupervisorChannelDir,
 } from "../../src/intercom/native-supervisor-channel.ts";
 import { SUPERVISOR_REPLY_ENTRY_TYPE, SUPERVISOR_REQUEST_MESSAGE_TYPE } from "../../src/intercom/supervisor-ui.ts";
@@ -571,7 +570,7 @@ describe("native supervisor channel", () => {
 			channel.start();
 			const child = state.foregroundRuns.get(runId)!.children[0]!;
 			assert.equal(child.activityState, "needs_attention");
-			assert.equal(child.currentTool, "contact_supervisor");
+			assert.equal(child.currentTool, "contact_agent");
 
 			await registeredTools.get(NATIVE_SUPERVISOR_TOOL_NAME)!.execute("reply", {
 				action: "reply",
@@ -622,7 +621,7 @@ describe("native supervisor channel", () => {
 			channel.start();
 			const child = state.foregroundRuns.get(runId)!.children[0]!;
 			assert.equal(child.activityState, "needs_attention");
-			assert.equal(child.currentTool, "contact_supervisor");
+			assert.equal(child.currentTool, "contact_agent");
 		} finally {
 			channel.dispose();
 		}
@@ -683,7 +682,7 @@ describe("native supervisor channel", () => {
 		}
 	});
 
-	it("clears remembered attention even when currentTool is not contact_supervisor", async () => {
+	it("clears remembered attention even when currentTool is not contact_agent", async () => {
 		const currentSessionId = `session-${randomUUID()}`;
 		const runId = `run-${randomUUID()}`;
 		const requestId = writeRequest({ sessionId: currentSessionId, runId });
@@ -1023,31 +1022,33 @@ describe("native supervisor channel", () => {
 		}
 	});
 
-	it("stores only the child-authored supervisor message in the request body", async () => {
+	it("validates supervisor messages and writes progress updates via contact_agent", async () => {
+		const { registerSiblingTools } = await import("../../src/intercom/sibling-tools.ts");
 		const runId = `run-${randomUUID()}`;
-		const channelDir = resolveSupervisorChannelDir(runId, "worker", 3);
+		const channelDir = resolveSupervisorChannelDir(runId, "worker", 0);
 		createdChannels.push(channelDir);
-		const registeredTools = new Map<string, { execute: (_id: string, params: { reason: string; message?: string }) => Promise<unknown> | unknown }>();
+		const registeredTools = new Map<string, { execute: (_id: string, params: Record<string, unknown>) => Promise<unknown> | unknown }>();
 		const pi = {
 			getAllTools: () => [...registeredTools.keys()].map((name) => ({ name })),
-			registerTool: (tool: { name: string; execute: (_id: string, params: { reason: string; message?: string }) => Promise<unknown> | unknown }) => {
+			registerTool: (tool: { name: string; execute: (_id: string, params: Record<string, unknown>) => Promise<unknown> | unknown }) => {
 				registeredTools.set(tool.name, tool);
 			},
 		};
-		registerNativeSupervisorClient(pi as never, {
+		registerSiblingTools(pi as never, {
 			channelDir,
 			runId,
 			agent: "worker",
 			childIndex: 3,
 			orchestratorTarget: "shared-name",
 			orchestratorSessionId: "session-parent",
-		});
+		}, { sibling: { workflowRunId: "wf-1", selfKey: "scout" } });
 
 		await assert.rejects(
-			() => registeredTools.get("contact_supervisor")!.execute("blank-progress", { reason: "progress_update" }),
+			() => registeredTools.get("contact_agent")!.execute("blank-progress", { to: "supervisor", reason: "progress_update" }),
 			/message is required for supervisor decisions and progress updates/,
 		);
-		await registeredTools.get("contact_supervisor")!.execute("contact", {
+		await registeredTools.get("contact_agent")!.execute("contact", {
+			to: "supervisor",
 			reason: "progress_update",
 			message: "  Finished the first review pass.  ",
 		});
@@ -1060,30 +1061,68 @@ describe("native supervisor channel", () => {
 		assert.equal(request.childIndex, 3);
 	});
 
-	it("removes the request file when a child supervisor ask is cancelled", async () => {
+	it("records contact_agent relay hints (about) as siblingTarget", async () => {
+		// contact_agent with about:<key> must land on the supervisor request exactly
+		// like the removed contact_agent({ to }) relay hint did.
+		const { registerSiblingTools } = await import("../../src/intercom/sibling-tools.ts");
 		const runId = `run-${randomUUID()}`;
 		const channelDir = resolveSupervisorChannelDir(runId, "worker", 0);
 		createdChannels.push(channelDir);
-		const registeredTools = new Map<string, { execute: (_id: string, params: { reason: string; message?: string }, signal?: AbortSignal) => Promise<unknown> | unknown }>();
+		const registeredTools = new Map<string, { execute: (_id: string, params: Record<string, unknown>) => Promise<unknown> | unknown }>();
 		const pi = {
 			getAllTools: () => [...registeredTools.keys()].map((name) => ({ name })),
-			registerTool: (tool: { name: string; execute: (_id: string, params: { reason: string; message?: string }, signal?: AbortSignal) => Promise<unknown> | unknown }) => {
+			registerTool: (tool: { name: string; execute: (_id: string, params: Record<string, unknown>) => Promise<unknown> | unknown }) => {
 				registeredTools.set(tool.name, tool);
 			},
 		};
-		registerNativeSupervisorClient(pi as never, {
+		registerSiblingTools(pi as never, {
 			channelDir,
 			runId,
 			agent: "worker",
 			childIndex: 0,
 			orchestratorTarget: "shared-name",
 			orchestratorSessionId: "session-parent",
-		});
+		}, { sibling: { workflowRunId: "wf-1", selfKey: "scout" } });
+		const contact = registeredTools.get("contact_agent")!;
+		for (const reserved of ["system", "System", "SUPERVISOR"]) {
+			await assert.rejects(
+				() => contact.execute("x", { to: "supervisor", about: reserved, message: "hi" }),
+				/reserved/,
+			);
+		}
+		// progress_update is non-blocking: the relay hint lands in the request file.
+		await contact.execute("y", { to: "supervisor", about: "ui", reason: "progress_update", message: "for ui" });
+		const [file] = fs.readdirSync(path.join(channelDir, "requests"));
+		const request = JSON.parse(fs.readFileSync(path.join(channelDir, "requests", file!), "utf-8")) as { siblingTarget?: string };
+		assert.equal(request.siblingTarget, "ui");
+	});
+
+
+	it("removes the request file when a child supervisor ask is cancelled", async () => {
+		const { registerSiblingTools } = await import("../../src/intercom/sibling-tools.ts");
+		const runId = `run-${randomUUID()}`;
+		const channelDir = resolveSupervisorChannelDir(runId, "worker", 0);
+		createdChannels.push(channelDir);
+		const registeredTools = new Map<string, { execute: (_id: string, params: Record<string, unknown>, signal?: AbortSignal) => Promise<unknown> | unknown }>();
+		const pi = {
+			getAllTools: () => [...registeredTools.keys()].map((name) => ({ name })),
+			registerTool: (tool: { name: string; execute: (_id: string, params: Record<string, unknown>, signal?: AbortSignal) => Promise<unknown> | unknown }) => {
+				registeredTools.set(tool.name, tool);
+			},
+		};
+		registerSiblingTools(pi as never, {
+			channelDir,
+			runId,
+			agent: "worker",
+			childIndex: 0,
+			orchestratorTarget: "shared-name",
+			orchestratorSessionId: "session-parent",
+		}, { sibling: { workflowRunId: "wf-1", selfKey: "scout" } });
 		const controller = new AbortController();
 		controller.abort();
 
 		await assert.rejects(
-			() => registeredTools.get("contact_supervisor")!.execute("contact", { reason: "need_decision", message: "Need a decision" }, controller.signal),
+			() => registeredTools.get("contact_agent")!.execute("contact", { to: "supervisor", reason: "need_decision", message: "Need a decision" }, controller.signal),
 			/Supervisor request cancelled/,
 		);
 

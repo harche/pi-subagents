@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import { discoverPromptWorkflows, registerPromptWorkflowCommands } from "../../src/slash/prompt-workflows.ts";
 import { runWorkflowScript } from "../../src/workflows/scripted-workflow.ts";
 import type { SubagentParamsLike } from "../../src/runs/foreground/subagent-executor.ts";
+import { stripSiblingRosterSection } from "../../src/intercom/sibling-roster.ts";
 
 const originalAgentDir = process.env.PI_CODING_AGENT_DIR;
 
@@ -158,10 +159,12 @@ Fix from {previous}: $@
 			},
 			async status(key) { return { key, ok: true, output: "ok", artifactPaths: [] }; },
 		});
-		assert.deepEqual(launches, [
-			{ key: "prompt-1-native-analyze", task: "Analyze bug report" },
-			{ key: "prompt-2-native-fix", task: "Fix from analysis output: bug report" },
-		]);
+		assert.equal(launches.length, 2);
+		assert.deepEqual(launches[0], { key: "prompt-1-native-analyze", task: "Analyze bug report" });
+		// Sibling roster: the second sequential child sees the first as a peer.
+		assert.equal(launches[1]?.key, "prompt-2-native-fix");
+		assert.equal(stripSiblingRosterSection(launches[1]?.task), "Fix from analysis output: bug report");
+		assert.match(launches[1]?.task as string, /Sibling agents in this workflow:/);
 		assert.equal(executed.value, "fixed output");
 	});
 });

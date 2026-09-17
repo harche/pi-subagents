@@ -381,7 +381,7 @@ describe("async execution utilities", { skip: !available ? "pi packages not avai
 		assert.equal(preflight.ok, true);
 		if (!preflight.ok) return;
 		assert.deepEqual(preflight.contract.intercomBridge, { mode: "always", active: true });
-		assert.ok(preflight.contract.tools.effectiveAllowlist.includes("contact_supervisor"));
+		assert.ok(preflight.contract.tools.effectiveAllowlist.includes("contact_agent"));
 
 		mockPi.onCall({ output: "bridged async done" });
 		const launch = await makeAsyncExecutor([discovered]).execute(
@@ -413,7 +413,7 @@ describe("async execution utilities", { skip: !available ? "pi packages not avai
 		const launch = executeAsyncSingle(id, {
 			agent: "worker",
 			task: "Exercise launch digest reporting",
-			agentConfig: { ...recoveryAgentConfig, tools: ["read", "intercom", "contact_supervisor"], systemPrompt: "Base prompt\n\nIntercom orchestration channel:" },
+			agentConfig: { ...recoveryAgentConfig, tools: ["read", "intercom", "contact_agent"], systemPrompt: "Base prompt\n\nIntercom orchestration channel:" },
 			recoveryAgentConfig,
 			ctx: { pi: { events: { emit() {} } }, cwd: tempDir, currentSessionId: "session-1" },
 			artifactConfig: { enabled: false, includeInput: false, includeOutput: false, includeJsonl: false, includeMetadata: false, cleanupDays: 7 },
@@ -453,7 +453,7 @@ describe("async execution utilities", { skip: !available ? "pi packages not avai
 		// through, but PI_SUBAGENT_REQUIRED_TOOLS excludes them so the 0.50 child
 		// runtime cannot fail the run over the removed native intercom (#1207).
 		const recoveryCallArgs = readMockPiArgs(mockPi, 0);
-		assert.equal(recoveryCallArgs[recoveryCallArgs.indexOf("--tools") + 1], "read,intercom,contact_supervisor");
+		assert.equal(recoveryCallArgs[recoveryCallArgs.indexOf("--tools") + 1], "read,intercom,contact_agent");
 		assert.deepEqual(readMockPiRequiredTools(mockPi, 0), ["read"]);
 	});
 
@@ -479,7 +479,7 @@ describe("async execution utilities", { skip: !available ? "pi packages not avai
 		const launch = executeAsyncSingle(id, {
 			agent: "worker",
 			task: "Implement the requested source fix",
-			agentConfig: makeAgent("worker", { tools: ["read", "grep", "find", "ls", "contact_supervisor"] }),
+			agentConfig: makeAgent("worker", { tools: ["read", "grep", "find", "ls", "contact_agent"] }),
 			ctx: { pi: { events: { emit() {} } }, cwd: tempDir, currentSessionId: "session-1" },
 			artifactConfig: { enabled: false, includeInput: false, includeOutput: false, includeJsonl: false, includeMetadata: false, cleanupDays: 7 },
 			shareEnabled: false,
@@ -730,7 +730,7 @@ describe("async execution utilities", { skip: !available ? "pi packages not avai
 		const launch = executeAsyncChain(id, {
 			chain: [{ agent: "worker", task: "Implement the requested source fix" }],
 			resultMode: "chain",
-			agents: [makeAgent("worker", { tools: ["read", "grep", "find", "ls", "contact_supervisor"] })],
+			agents: [makeAgent("worker", { tools: ["read", "grep", "find", "ls", "contact_agent"] })],
 			ctx: { pi: { events: { emit() {} } }, cwd: tempDir, currentSessionId: "session-1" },
 			artifactConfig: { enabled: false, includeInput: false, includeOutput: false, includeJsonl: false, includeMetadata: false, cleanupDays: 7 },
 			shareEnabled: false,
@@ -755,7 +755,7 @@ describe("async execution utilities", { skip: !available ? "pi packages not avai
 			resultMode: "chain",
 			agents: [
 				makeAgent("producer", { completionGuard: false }),
-				makeAgent("worker", { tools: ["read", "grep", "find", "ls", "contact_supervisor"] }),
+				makeAgent("worker", { tools: ["read", "grep", "find", "ls", "contact_agent"] }),
 			],
 			ctx: { pi: { events: { emit() {} } }, cwd: tempDir, currentSessionId: "session-1" },
 			artifactConfig: { enabled: false, includeInput: false, includeOutput: false, includeJsonl: false, includeMetadata: false, cleanupDays: 7 },
@@ -897,7 +897,7 @@ describe("async execution utilities", { skip: !available ? "pi packages not avai
 			assert.deepEqual(status.capabilityCeiling, payload.capabilityCeiling);
 			assert.deepEqual(status.steps?.[0]?.capabilityCeiling, payload.capabilityCeiling);
 			assert.deepEqual(payload.capabilityAudit?.effectiveTools, ["read"]);
-			assert.deepEqual(payload.capabilityAudit?.removedTools, ["write", "contact_supervisor"]);
+			assert.deepEqual(payload.capabilityAudit?.removedTools, ["write", "contact_agent"]);
 			assert.equal(payload.capabilityAudit?.extensionsDenied, true);
 			const events = fs.readFileSync(path.join(asyncDir, "events.jsonl"), "utf-8").trim().split("\n").map((line) => JSON.parse(line));
 			assert.ok(events.some((event) => event.type === "subagent.capability-ceiling.applied" && event.stepIndex === 0 && event.capabilityAudit?.removedTools?.includes("write")));
@@ -906,7 +906,7 @@ describe("async execution utilities", { skip: !available ? "pi packages not avai
 			const metadata = JSON.parse(fs.readFileSync(metadataPath, "utf-8")) as { launchContractDigest?: string; capabilityCeiling?: unknown; capabilityAudit?: { removedTools?: string[] } };
 			assert.equal(metadata.launchContractDigest, payload.results[0]?.launchContractDigest);
 			assert.deepEqual(metadata.capabilityCeiling, payload.capabilityCeiling);
-			assert.deepEqual(metadata.capabilityAudit?.removedTools, ["write", "contact_supervisor"]);
+			assert.deepEqual(metadata.capabilityAudit?.removedTools, ["write", "contact_agent"]);
 		} finally {
 			try {
 				// Result/read/assertion failures must not skip an established owned-run wait.

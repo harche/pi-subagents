@@ -96,6 +96,10 @@ export interface RunnerSubagentStep {
 	worktree?: boolean;
 	/** Bounded launch-declared lane metadata; display/triage only. */
 	lane?: import("../../shared/types.ts").WorkflowLaneMetadata;
+	/** Workflow run id for same-workflow sibling scope; set from the launch workflow identity. */
+	siblingWorkflowRunId?: string;
+	/** This child's stable workflow key for sibling identity binding. */
+	siblingSelfKey?: string;
 }
 
 export interface ParallelStepGroup {

@@ -8,6 +8,7 @@ import type { ChildSupervisorMetadata } from "../runs/shared/child-runtime-confi
 import { INTERCOM_DETACH_REQUEST_EVENT, POLL_INTERVAL_MS, TEMP_ROOT_DIR, type ControlEvent, type IntercomEventBus, type SubagentState } from "../shared/types.ts";
 import { writeAtomicJson } from "../shared/atomic-json.ts";
 import { shouldUseNativeFsWatch } from "../shared/watch-strategy.ts";
+import { checkSiblingKey } from "./sibling-channels.ts";
 import {
 	SUPERVISOR_REQUEST_MESSAGE_TYPE,
 	SUPERVISOR_REPLY_ENTRY_TYPE,
@@ -39,6 +40,8 @@ interface SupervisorRequest {
 	reason: SupervisorReason;
 	message: string;
 	expectsReply: boolean;
+	/** Optional sibling key this request concerns (Phase 1 relayed consult). */
+	siblingTarget?: string;
 	orchestratorTarget?: string;
 	orchestratorSessionId?: string;
 	runId: string;
@@ -71,6 +74,8 @@ interface ContactSupervisorParams {
 	reason: SupervisorReason;
 	message?: string;
 	interview?: unknown;
+	/** Optional sibling workflow key this request concerns (relay hint). */
+	to?: string;
 }
 
 interface IntercomParams {
@@ -91,12 +96,6 @@ interface NativeSupervisorChannelDeps {
 	watch?: SupervisorWatch;
 	timers?: Pick<typeof globalThis, "setInterval" | "clearInterval" | "setImmediate" | "clearImmediate">;
 }
-
-const ContactSupervisorParamsSchema = Type.Object({
-	reason: Type.String({ enum: ["need_decision", "interview_request", "progress_update"] }),
-	message: Type.Optional(Type.String()),
-	interview: Type.Optional(Type.Unsafe({ type: "object", additionalProperties: true })),
-}, { additionalProperties: false });
 
 const IntercomParamsSchema = Type.Object({
 	action: Type.String({ enum: ["list", "pending", "status", "reply"] }),
@@ -185,10 +184,16 @@ async function waitForReply(channelDir: string, requestId: string, deadline: num
 	throw new Error("Timed out waiting for supervisor reply.");
 }
 
-async function sendSupervisorRequest(params: ContactSupervisorParams, metadata: ChildSupervisorMetadata, signal?: AbortSignal, toolCallId?: string): Promise<AgentToolResult<Record<string, unknown>>> {
+function normalizeSiblingTarget(value: unknown): string | undefined {
+	if (typeof value !== "string" || !value.trim()) return undefined;
+	return checkSiblingKey(value, "about");
+}
+
+export async function sendSupervisorRequest(params: ContactSupervisorParams, metadata: ChildSupervisorMetadata, signal?: AbortSignal, toolCallId?: string): Promise<AgentToolResult<Record<string, unknown>>> {
 	if (!params.message?.trim() && params.reason !== "interview_request") {
 		throw new Error("message is required for supervisor decisions and progress updates.");
 	}
+	const siblingTarget = normalizeSiblingTarget((params as { to?: unknown }).to);
 	ensureSupervisorChannelDir(metadata.channelDir);
 	const requestId = randomUUID();
 	const expectsReply = params.reason !== "progress_update";
@@ -213,6 +218,7 @@ async function sendSupervisorRequest(params: ContactSupervisorParams, metadata: 
 		...(requestToolCallId ? { toolCallId: requestToolCallId } : {}),
 		...(metadata.childTarget ? { childTarget: metadata.childTarget } : {}),
 		...(params.interview !== undefined ? { interview: params.interview } : {}),
+		...(siblingTarget ? { siblingTarget } : {}),
 	};
 	const serialized = JSON.stringify(request, null, "\t");
 	if (Buffer.byteLength(serialized, "utf-8") > MAX_MESSAGE_BYTES) throw new Error("Supervisor request is too large.");
@@ -249,24 +255,6 @@ function hasTool(pi: ExtensionAPI, name: string): boolean {
 	} catch {
 		return false;
 	}
-}
-
-/**
- * Register the child-side `contact_supervisor` tool. The host passes the
- * channel metadata in the child runtime config.
- */
-export function registerNativeSupervisorClient(pi: ExtensionAPI, metadata: ChildSupervisorMetadata | undefined): void {
-	if (!metadata || hasTool(pi, "contact_supervisor")) return;
-	const tool: ToolDefinition<typeof ContactSupervisorParamsSchema, Record<string, unknown>> = {
-		name: "contact_supervisor",
-		label: "Contact Supervisor",
-		description: "Contact the parent/supervisor session for a blocking decision, structured interview, or progress update.",
-		parameters: ContactSupervisorParamsSchema,
-		execute(id, params, signal) {
-			return sendSupervisorRequest(params as ContactSupervisorParams, metadata, signal, id);
-		},
-	};
-	pi.registerTool(tool);
 }
 
 function parseRequestFile(file: string, channelDir: string): PendingSupervisorRequest | undefined {
@@ -404,7 +392,7 @@ function markForegroundSupervisorAttention(request: SupervisorRequest, state: Su
 	remembered.run.updatedAt = updatedAt;
 	remembered.child.activityState = "needs_attention";
 	remembered.child.lastActivityAt = request.createdAt;
-	remembered.child.currentTool = "contact_supervisor";
+	remembered.child.currentTool = "contact_agent";
 	remembered.child.currentToolStartedAt = request.createdAt;
 	remembered.child.updatedAt = updatedAt;
 }
@@ -482,7 +470,8 @@ function refreshPendingRequests(pending: Map<string, PendingSupervisorRequest>, 
 
 function formatPendingLine(request: PendingSupervisorRequest): string {
 	const replyHint = request.expectsReply ? ` Reply: ${supervisorReplyHint(request.id)}` : "";
-	return `- ${request.id}: ${request.agent} [${request.runId}#${request.childIndex}] ${request.reason}.${replyHint}`;
+	const sibling = request.siblingTarget ? ` sibling:${request.siblingTarget}` : "";
+	return `- ${request.id}: ${request.agent} [${request.runId}#${request.childIndex}] ${request.reason}${sibling}.${replyHint}`;
 }
 
 function requestVisibleText(request: PendingSupervisorRequest): string {
@@ -491,6 +480,7 @@ function requestVisibleText(request: PendingSupervisorRequest): string {
 		`Run: ${request.runId}`,
 		`Agent: ${request.agent}`,
 		`Child index: ${request.childIndex}`,
+		...(request.siblingTarget ? [`Sibling consult: ${request.siblingTarget} (relay via runs.steer)`] : []),
 	];
 	lines.push("");
 	if (request.message) lines.push(request.message);
@@ -528,6 +518,7 @@ function appendSupervisorReplyEntry(pi: ExtensionAPI, request: PendingSupervisor
 		appendEntry.call(pi, SUPERVISOR_REPLY_ENTRY_TYPE, {
 			requestId: request.id,
 			reason: request.reason,
+			...(request.siblingTarget ? { siblingTarget: request.siblingTarget } : {}),
 			runId: request.runId,
 			agent: request.agent,
 			childIndex: request.childIndex,
@@ -553,7 +544,8 @@ function resolvePendingRequest(pending: Map<string, PendingSupervisorRequest>, p
 		const matches = requests.filter((request) =>
 			request.id.toLowerCase().startsWith(normalizedTo)
 			|| request.agent.toLowerCase() === normalizedTo
-			|| request.childTarget?.toLowerCase() === normalizedTo,
+			|| request.childTarget?.toLowerCase() === normalizedTo
+			|| request.siblingTarget?.toLowerCase() === normalizedTo,
 		);
 		if (matches.length === 1) return matches[0]!;
 		if (matches.length > 1) throw new Error(`Multiple pending supervisor requests match '${params.to}'. Use replyTo.`);
@@ -572,6 +564,7 @@ function publicPendingRequests(pending: Map<string, PendingSupervisorRequest>): 
 		childIndex: request.childIndex,
 		reason: request.reason,
 		expectsReply: request.expectsReply,
+		...(request.siblingTarget ? { siblingTarget: request.siblingTarget } : {}),
 	}));
 }
 
@@ -753,6 +746,7 @@ export function createNativeSupervisorChannel(pi: ExtensionAPI, state: SubagentS
 						id: request.id,
 						requestId: request.id,
 						reason: request.reason,
+						...(request.siblingTarget ? { siblingTarget: request.siblingTarget } : {}),
 						expectsReply: request.expectsReply,
 						runId: request.runId,
 						agent: request.agent,

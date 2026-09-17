@@ -94,7 +94,7 @@ describe("injectSingleOutputInstruction", () => {
 		const output = injectSingleOutputInstruction("Analyze this", "/tmp/report.md", { tools: ["read", "grep", "find", "ls"] });
 		assert.match(output, /Return the complete artifact in your final response\./);
 		assert.match(output, /runtime will persist it to exactly this path: \/tmp\/report\.md/);
-		assert.match(output, /Do not call contact_supervisor merely because no write-capable tool is available\./);
+		assert.match(output, /Do not call contact_agent merely because no write-capable tool is available\./);
 		assert.doesNotMatch(output, /Write your findings to exactly this path/);
 	});
 });

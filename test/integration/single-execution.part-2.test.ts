@@ -111,9 +111,9 @@ if (!fs.existsSync(${JSON.stringify(holdPath)})) { console.log('{}'); } else {
 				if (mode !== "abort") {
 					let childReady!: () => void;
 					const ready = new Promise<void>((resolve) => { childReady = resolve; });
-					mockPi.onCall({ steps: [{ jsonl: [events.toolStart("contact_supervisor", { reason: "need_decision", message: "Ready" })] }, { waitForPath: releaseChild, jsonl: [events.assistantMessage("child A done")] }] });
+					mockPi.onCall({ steps: [{ jsonl: [events.toolStart("contact_agent", { reason: "need_decision", message: "Ready" })] }, { waitForPath: releaseChild, jsonl: [events.assistantMessage("child A done")] }] });
 					child = executor.execute("lifecycle-A", { async: false, agent: "worker", task: "A", worktree: true, acceptance: false }, controller.signal, (update) => {
-						if (update.details?.progress?.some((entry) => entry.currentTool === "contact_supervisor")) childReady();
+						if (update.details?.progress?.some((entry) => entry.currentTool === "contact_agent")) childReady();
 						if (update.details?.progress?.some((entry) => entry.status === "completed")) childCompleted();
 					}, makeMinimalCtx(tempDir));
 					void child.then(() => { childSettled = true; });
@@ -187,7 +187,7 @@ if (!fs.existsSync(${JSON.stringify(holdPath)})) { console.log('{}'); } else {
 		mockPi.onCall({
 			matchArgIncludes: "Ask then continue",
 			steps: [
-				{ jsonl: [events.toolStart("contact_supervisor", { reason: "need_decision", message: "Need a decision" })] },
+				{ jsonl: [events.toolStart("contact_agent", { reason: "need_decision", message: "Need a decision" })] },
 				{ delay: 500, jsonl: [events.assistantMessage("done after coordination")] },
 			],
 		});
@@ -1436,7 +1436,7 @@ if (!fs.existsSync(${JSON.stringify(holdPath)})) { console.log('{}'); } else {
 
 	it("rejects implementation runs without mutation-capable tools before spawn", async () => {
 		mockPi.onCall({ output: "should not spawn" });
-		const agents = [makeAgent("worker", { tools: ["read", "grep", "find", "ls", "contact_supervisor"] })];
+		const agents = [makeAgent("worker", { tools: ["read", "grep", "find", "ls", "contact_agent"] })];
 
 		const result = await runSync(tempDir, agents, "worker", "Implement the approved file changes", {
 			runId: "readonly-contract-run",
@@ -3020,8 +3020,8 @@ if (!fs.existsSync(${JSON.stringify(holdPath)})) { console.log('{}'); } else {
 		const activeReleasePath = path.join(tempDir, "release-delegated-active");
 		mockPi.onCall({
 			steps: [
-				{ jsonl: [events.toolStart("contact_supervisor", { message: "waiting" })] },
-				{ waitForPath: activeReleasePath, jsonl: [events.toolEnd("contact_supervisor"), events.toolResult("contact_supervisor", "done")] },
+				{ jsonl: [events.toolStart("contact_agent", { message: "waiting" })] },
+				{ waitForPath: activeReleasePath, jsonl: [events.toolEnd("contact_agent"), events.toolResult("contact_agent", "done")] },
 				{ jsonl: [events.assistantMessage("Done")] },
 			],
 		});
@@ -3541,7 +3541,7 @@ if (!fs.existsSync(${JSON.stringify(holdPath)})) { console.log('{}'); } else {
 		for (const instruction of [taskArg, systemPrompt]) {
 			assert.match(instruction, /Return the complete artifact in your final response\./);
 			assert.match(instruction, /runtime will persist it to exactly this path:/);
-			assert.match(instruction, /Do not call contact_supervisor merely because no write-capable tool is available\./);
+			assert.match(instruction, /Do not call contact_agent merely because no write-capable tool is available\./);
 			assert.doesNotMatch(instruction, /Write your findings to exactly this path/);
 		}
 	});
@@ -4960,7 +4960,7 @@ if (!fs.existsSync(${JSON.stringify(holdPath)})) { console.log('{}'); } else {
 		assert.ok(Date.now() - startedAt < 5_000, "detached child should remain bounded by runtime enforcement");
 	});
 
-	for (const toolName of ["intercom", "contact_supervisor"]) {
+	for (const toolName of ["intercom", "contact_agent"]) {
 		it(`detaches cleanly on ${toolName} handoff without aborting the child session`, async () => {
 			const eventBus = createEventBus();
 			let accepted = false;
@@ -5010,7 +5010,7 @@ if (!fs.existsSync(${JSON.stringify(holdPath)})) { console.log('{}'); } else {
 		const abortBus = createEventBus();
 		const abortResponses: boolean[] = [];
 		abortBus.on(INTERCOM_DETACH_RESPONSE_EVENT, (payload) => abortResponses.push((payload as { accepted: boolean }).accepted));
-		mockPi.onCall({ steps: [{ jsonl: [events.toolStart("contact_supervisor", { reason: "need_decision", message: "Need decision" })] }, { delay: 10_000 }] });
+		mockPi.onCall({ steps: [{ jsonl: [events.toolStart("contact_agent", { reason: "need_decision", message: "Need decision" })] }, { delay: 10_000 }] });
 		const origin = new AbortController();
 		let requested = false;
 		const abortedResult = await runSync(tempDir, makeAgentConfigs(["echo"]), "echo", "Task", {
@@ -5019,7 +5019,7 @@ if (!fs.existsSync(${JSON.stringify(holdPath)})) { console.log('{}'); } else {
 			intercomEvents: abortBus,
 			signal: origin.signal,
 			onUpdate: (update) => {
-				if (requested || !update.details?.progress?.some((item) => item.currentTool === "contact_supervisor")) return;
+				if (requested || !update.details?.progress?.some((item) => item.currentTool === "contact_agent")) return;
 				requested = true;
 				origin.abort();
 				abortBus.emit(INTERCOM_DETACH_REQUEST_EVENT, { requestId: "abort-race" });
@@ -5031,14 +5031,14 @@ if (!fs.existsSync(${JSON.stringify(holdPath)})) { console.log('{}'); } else {
 		const repeatedBus = createEventBus();
 		const repeatedResponses: boolean[] = [];
 		repeatedBus.on(INTERCOM_DETACH_RESPONSE_EVENT, (payload) => repeatedResponses.push((payload as { accepted: boolean }).accepted));
-		mockPi.onCall({ steps: [{ jsonl: [events.toolStart("contact_supervisor", { reason: "need_decision", message: "Need decision" })] }, { delay: 50, jsonl: [events.assistantMessage("done")] }] });
+		mockPi.onCall({ steps: [{ jsonl: [events.toolStart("contact_agent", { reason: "need_decision", message: "Need decision" })] }, { delay: 50, jsonl: [events.assistantMessage("done")] }] });
 		let repeated = false;
 		const repeatedReceipt = await runSync(tempDir, makeAgentConfigs(["echo"]), "echo", "Task", {
 			runId: "intercom-repeated-detach",
 			allowIntercomDetach: true,
 			intercomEvents: repeatedBus,
 			onUpdate: (update) => {
-				if (repeated || !update.details?.progress?.some((item) => item.currentTool === "contact_supervisor")) return;
+				if (repeated || !update.details?.progress?.some((item) => item.currentTool === "contact_agent")) return;
 				repeated = true;
 				repeatedBus.emit(INTERCOM_DETACH_REQUEST_EVENT, { requestId: "first" });
 				repeatedBus.emit(INTERCOM_DETACH_REQUEST_EVENT, { requestId: "second" });
@@ -5051,7 +5051,7 @@ if (!fs.existsSync(${JSON.stringify(holdPath)})) { console.log('{}'); } else {
 	it("does not launch retries or fallbacks after intercom detach and keeps timeout enforcement", async () => {
 		const fallbackBus = createEventBus();
 		mockPi.onCall({
-			steps: [{ jsonl: [events.toolStart("contact_supervisor", { reason: "need_decision", message: "Need decision" })] }],
+			steps: [{ jsonl: [events.toolStart("contact_agent", { reason: "need_decision", message: "Need decision" })] }],
 			stderr: "rate limit exceeded",
 			exitCode: 1,
 		});
@@ -5065,7 +5065,7 @@ if (!fs.existsSync(${JSON.stringify(holdPath)})) { console.log('{}'); } else {
 			allowIntercomDetach: true,
 			intercomEvents: fallbackBus,
 			onUpdate: (update) => {
-				if (fallbackRequested || !update.details?.progress?.some((item) => item.currentTool === "contact_supervisor")) return;
+				if (fallbackRequested || !update.details?.progress?.some((item) => item.currentTool === "contact_agent")) return;
 				fallbackRequested = true;
 				fallbackBus.emit(INTERCOM_DETACH_REQUEST_EVENT, { requestId: "no-fallback" });
 			},
@@ -5110,7 +5110,7 @@ if (!fs.existsSync(${JSON.stringify(holdPath)})) { console.log('{}'); } else {
 		const eventBus = createEventBus();
 		mockPi.onCall({
 			steps: [
-				{ jsonl: [events.toolStart("contact_supervisor", { reason: "need_decision", message: "Need a decision" })] },
+				{ jsonl: [events.toolStart("contact_agent", { reason: "need_decision", message: "Need a decision" })] },
 				{ delay: 1000, jsonl: [events.assistantMessage("after reply")] },
 			],
 		});
@@ -5127,7 +5127,7 @@ if (!fs.existsSync(${JSON.stringify(holdPath)})) { console.log('{}'); } else {
 			onUpdate: (update) => {
 				if (detachEmitted) return;
 				const progress = (update as { details?: { progress?: Array<{ currentTool?: string }> } }).details?.progress;
-				if (!Array.isArray(progress) || !progress.some((p) => p?.currentTool === "contact_supervisor")) return;
+				if (!Array.isArray(progress) || !progress.some((p) => p?.currentTool === "contact_agent")) return;
 				detachEmitted = true;
 				eventBus.emit(INTERCOM_DETACH_REQUEST_EVENT, { requestId: "file-only-detach" });
 			},
@@ -5144,7 +5144,7 @@ if (!fs.existsSync(${JSON.stringify(holdPath)})) { console.log('{}'); } else {
 		const eventBus = createEventBus();
 		mockPi.onCall({
 			steps: [
-				{ jsonl: [events.toolStart("contact_supervisor", { reason: "need_decision", message: "Need a decision" })] },
+				{ jsonl: [events.toolStart("contact_agent", { reason: "need_decision", message: "Need a decision" })] },
 				{ delay: 100, jsonl: [events.assistantMessage("after reply")] },
 			],
 		});
@@ -5162,7 +5162,7 @@ if (!fs.existsSync(${JSON.stringify(holdPath)})) { console.log('{}'); } else {
 			onUpdate: (update) => {
 				if (detachEmitted) return;
 				const progress = (update as { details?: { progress?: Array<{ currentTool?: string }> } }).details?.progress;
-				if (!Array.isArray(progress) || !progress.some((p) => p?.currentTool === "contact_supervisor")) return;
+				if (!Array.isArray(progress) || !progress.some((p) => p?.currentTool === "contact_agent")) return;
 				detachEmitted = true;
 				eventBus.emit(INTERCOM_DETACH_REQUEST_EVENT, { requestId: "file-only-post-exit-detach" });
 			},
@@ -5191,7 +5191,7 @@ if (!fs.existsSync(${JSON.stringify(holdPath)})) { console.log('{}'); } else {
 	it("aborts a foreground coordination tool start instead of detaching without a delivered handoff", async () => {
 		mockPi.onCall({
 			steps: [
-				{ jsonl: [events.toolStart("contact_supervisor", { reason: "need_decision", message: "Need a decision" })] },
+				{ jsonl: [events.toolStart("contact_agent", { reason: "need_decision", message: "Need a decision" })] },
 				{ delay: 10000, jsonl: [events.assistantMessage("after abort")] },
 			],
 		});
@@ -5206,7 +5206,7 @@ if (!fs.existsSync(${JSON.stringify(holdPath)})) { console.log('{}'); } else {
 			onUpdate: (update) => {
 				if (aborted) return;
 				const progress = (update as { details?: { progress?: Array<{ currentTool?: string }> } }).details?.progress;
-				if (!Array.isArray(progress) || !progress.some((p) => p?.currentTool === "contact_supervisor")) return;
+				if (!Array.isArray(progress) || !progress.some((p) => p?.currentTool === "contact_agent")) return;
 				aborted = true;
 				controller.abort();
 			},
@@ -5220,8 +5220,8 @@ if (!fs.existsSync(${JSON.stringify(holdPath)})) { console.log('{}'); } else {
 
 	for (const testCase of [
 		{ name: "intercom ask", toolName: "intercom", args: { action: "ask", to: "orchestrator" } },
-		{ name: "contact_supervisor need_decision", toolName: "contact_supervisor", args: { reason: "need_decision", message: "Need a decision" } },
-		{ name: "contact_supervisor interview_request", toolName: "contact_supervisor", args: { reason: "interview_request", message: "Need input", interview: { questions: [] } } },
+		{ name: "contact_agent need_decision", toolName: "contact_agent", args: { reason: "need_decision", message: "Need a decision" } },
+		{ name: "contact_agent interview_request", toolName: "contact_agent", args: { reason: "interview_request", message: "Need input", interview: { questions: [] } } },
 	]) {
 		it(`does not detach foreground children on blocking ${testCase.name} before a delivered handoff`, async () => {
 			mockPi.onCall({
@@ -5246,7 +5246,7 @@ if (!fs.existsSync(${JSON.stringify(holdPath)})) { console.log('{}'); } else {
 
 	for (const testCase of [
 		{ name: "intercom send", toolName: "intercom", args: { action: "send", to: "orchestrator", message: "FYI" } },
-		{ name: "contact_supervisor progress_update", toolName: "contact_supervisor", args: { reason: "progress_update", message: "FYI" } },
+		{ name: "contact_agent progress_update", toolName: "contact_agent", args: { reason: "progress_update", message: "FYI" } },
 	]) {
 		it(`does not proactively detach foreground children on non-blocking ${testCase.name}`, async () => {
 			mockPi.onCall({

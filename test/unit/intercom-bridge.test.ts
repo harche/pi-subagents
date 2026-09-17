@@ -175,7 +175,7 @@ describe("resolveIntercomBridge", () => {
 		assert.equal(bridge.active, true);
 		assert.match(bridge.instruction, /reference-only/i);
 		assert.match(bridge.instruction, /normal assistant text/i);
-		assert.match(bridge.instruction, /contact_supervisor/);
+		assert.match(bridge.instruction, /contact_agent/);
 		assert.match(bridge.instruction, /need_decision/);
 		assert.match(bridge.instruction, /progress_update/);
 		assert.match(bridge.instruction, /focused task result/i);
@@ -189,7 +189,7 @@ describe("applyIntercomBridgeToAgent", () => {
 		resultDelivery: true,
 		orchestratorTarget: "main",
 		extensionDir: NATIVE_INTERCOM_EXTENSION_DIR,
-		instruction: "Intercom orchestration channel:\n- Need a decision or blocked: contact_supervisor({ reason: \"need_decision\", message: \"<question>\" })\n- Blocked/update: contact_supervisor({ reason: \"progress_update\", message: \"UPDATE: <summary>\" })",
+		instruction: "Intercom orchestration channel:\n- Need a decision or blocked: contact_agent({ to: \"supervisor\", reason: \"need_decision\", message: \"<question>\" })\n- Blocked/update: contact_agent({ to: \"supervisor\", reason: \"progress_update\", message: \"UPDATE: <summary>\" })",
 		interpolatesOrchestratorTarget: false,
 	};
 
@@ -203,11 +203,11 @@ describe("applyIntercomBridgeToAgent", () => {
 		assert.equal(agent.definitionDigest, undefined);
 	});
 
-	it("injects contact_supervisor and prompt instructions", () => {
+	it("injects contact_agent and prompt instructions", () => {
 		const updated = applyIntercomBridgeToAgent(makeAgent({ tools: ["read", "bash"] }), activeBridge);
-		assert.deepEqual(updated.tools, ["read", "bash", "contact_supervisor"]);
+		assert.deepEqual(updated.tools, ["read", "bash", "contact_agent", "inbox"]);
 		assert.match(updated.systemPrompt, /Intercom orchestration channel:/);
-		assert.match(updated.systemPrompt, /contact_supervisor/);
+		assert.match(updated.systemPrompt, /contact_agent/);
 		assert.doesNotMatch(updated.systemPrompt ?? "", /Generic intercom/);
 	});
 
@@ -215,31 +215,57 @@ describe("applyIntercomBridgeToAgent", () => {
 		const first = applyIntercomBridgeToAgent(makeAgent({ tools: ["read"] }), activeBridge);
 		const second = applyIntercomBridgeToAgent(first, activeBridge);
 		assert.equal(second.tools?.filter((tool) => tool === "intercom").length, 0);
-		assert.equal(second.tools?.filter((tool) => tool === "contact_supervisor").length, 1);
+		assert.equal(second.tools?.filter((tool) => tool === "contact_agent").length, 1);
+		assert.equal(second.tools?.filter((tool) => tool === "inbox").length, 1);
 		assert.equal(second.systemPrompt, first.systemPrompt);
 	});
 
 	it("does not block native supervisor tools for agents with explicit extension allowlists", () => {
 		const agent = makeAgent({ tools: ["read"], extensions: ["/tmp/other-extension/index.ts"] });
 		const updated = applyIntercomBridgeToAgent(agent, activeBridge);
-		assert.deepEqual(updated.tools, ["read", "contact_supervisor"]);
-		assert.match(updated.systemPrompt, /contact_supervisor/);
+		assert.deepEqual(updated.tools, ["read", "contact_agent", "inbox"]);
+		assert.match(updated.systemPrompt, /contact_agent/);
 	});
 
 	it("preserves explicitly requested external intercom tools", () => {
 		const updated = applyIntercomBridgeToAgent(makeAgent({ tools: ["read", "intercom"] }), activeBridge);
-		assert.deepEqual(updated.tools, ["read", "intercom", "contact_supervisor"]);
+		assert.deepEqual(updated.tools, ["read", "intercom", "contact_agent", "inbox"]);
 	});
 
 	it("does not widen explicit empty or MCP-only builtin allowlists", () => {
 		const emptyTools = applyIntercomBridgeToAgent(makeAgent({ tools: [] }), activeBridge);
 		assert.deepEqual(emptyTools.tools, []);
-		assert.match(emptyTools.systemPrompt, /contact_supervisor/);
+		assert.match(emptyTools.systemPrompt, /contact_agent/);
 
 		const mcpOnly = applyIntercomBridgeToAgent(makeAgent({ tools: [], mcpDirectTools: ["github/search_repositories"] }), activeBridge);
 		assert.deepEqual(mcpOnly.tools, []);
 		assert.deepEqual(mcpOnly.mcpDirectTools, ["github/search_repositories"]);
-		assert.match(mcpOnly.systemPrompt, /contact_supervisor/);
+		assert.match(mcpOnly.systemPrompt, /contact_agent/);
+	});
+});
+
+describe("sibling tool exclusion", () => {
+	it("omits excluded sibling tools but keeps the supervisor tool", () => {
+		const bridge: IntercomBridgeState = {
+			active: true,
+			mode: "always",
+			resultDelivery: false,
+			orchestratorTarget: "main",
+			extensionDir: NATIVE_INTERCOM_EXTENSION_DIR,
+			instruction: "x",
+			interpolatesOrchestratorTarget: false,
+		};
+		const updated = applyIntercomBridgeToAgent(
+			makeAgent({ tools: ["read"], excludeTools: ["inbox"] }),
+			bridge,
+		);
+		assert.deepEqual(updated.tools, ["read", "contact_agent"]);
+		// A pre-rename exclusion still removes supervisor contact.
+		const legacy = applyIntercomBridgeToAgent(
+			makeAgent({ tools: ["read"], excludeTools: ["contact_supervisor"] }),
+			bridge,
+		);
+		assert.deepEqual(legacy.tools, ["read", "inbox"]);
 	});
 });
 

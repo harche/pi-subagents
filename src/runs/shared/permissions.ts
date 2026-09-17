@@ -5,7 +5,7 @@ export type PermissionDecision = "allow" | "ask" | "deny";
 export type PermissionRules = Record<string, PermissionDecision>;
 export interface PermissionConfig { rules?: PermissionRules }
 
-const INTERNAL_TOOLS = new Set(["contact_supervisor", "intercom", "bg_wait", "structured_output"]);
+const INTERNAL_TOOLS = new Set(["contact_agent", "inbox", "intercom", "bg_wait", "structured_output"]);
 const DECISIONS = new Set<PermissionDecision>(["allow", "ask", "deny"]);
 const MAX_POLICY_BYTES = 16 * 1024;
 const MAX_PREVIEW_BYTES = 2048;

@@ -61,7 +61,7 @@ describe("external CLI runner", () => {
 
 	it("keeps supervisor-shaped stdout inert when supervisor support is unsupported", async () => {
 		const dir = tempDir();
-		const spoofed = JSON.stringify({ type: "contact_supervisor", reason: "need_decision", message: "Approve this" });
+		const spoofed = JSON.stringify({ type: "contact_agent", reason: "need_decision", message: "Approve this" });
 		const result = await runExternalCli({ command: process.execPath, args: ["-e", `process.stdout.write(${JSON.stringify(spoofed)})`], cwd: dir, prompt: "x", asyncDir: dir, stepIndex: 0 });
 		const runner = resolveExternalCliRunnerStatus({ command: process.execPath });
 

@@ -497,7 +497,7 @@ Answer only from the supplied synthetic text.
 			assert.equal(preflight.ok, true);
 			if (!preflight.ok) return;
 			assert.deepEqual(preflight.contract.intercomBridge, { mode: "always", active: true });
-			assert.equal(preflight.contract.tools.effectiveAllowlist.includes("contact_supervisor"), Boolean(declaredTools));
+			assert.equal(preflight.contract.tools.effectiveAllowlist.includes("contact_agent"), Boolean(declaredTools));
 
 			mockPi.onCall(structuredCall);
 			const request: SubagentDelegationRequest = {
@@ -528,7 +528,7 @@ Answer only from the supplied synthetic text.
 			const call = readCall();
 			const childPrompt = call.systemPrompts.map((entry) => entry.text ?? (entry.path ? fs.readFileSync(entry.path, "utf-8") : "")).join("\n");
 			assert.ok(childPrompt.includes(INTERCOM_BRIDGE_MARKER), "child prompt should carry the bridge instruction");
-			assert.equal(call.launch?.tools?.includes("contact_supervisor") ?? false, Boolean(declaredTools));
+			assert.equal(call.launch?.tools?.includes("contact_agent") ?? false, Boolean(declaredTools));
 		}
 	});
 
@@ -546,7 +546,7 @@ Answer only from the supplied synthetic text.
 		assert.equal(preflight.ok, true);
 		if (!preflight.ok) return;
 		assert.deepEqual(preflight.contract.intercomBridge, { active: false, mode: "off" });
-		assert.equal(preflight.contract.tools.effectiveAllowlist.includes("contact_supervisor"), false);
+		assert.equal(preflight.contract.tools.effectiveAllowlist.includes("contact_agent"), false);
 
 		mockPi.onCall({ output: "bridge off" });
 		const request: SubagentDelegationRequest = {
@@ -569,7 +569,7 @@ Answer only from the supplied synthetic text.
 		const call = readCall();
 		const childPrompt = call.systemPrompts.map((entry) => entry.text ?? (entry.path ? fs.readFileSync(entry.path, "utf-8") : "")).join("\n");
 		assert.equal(childPrompt.includes(INTERCOM_BRIDGE_MARKER), false, "override must keep the bridge out of the child prompt");
-		assert.equal(call.launch?.tools?.includes("contact_supervisor") ?? false, false);
+		assert.equal(call.launch?.tools?.includes("contact_agent") ?? false, false);
 	});
 
 	it("matches preflight launch digest for a custom bridge template when the host supplies the session target", { skip: !createSubagentExecutor ? "executor not importable" : undefined }, async () => {
@@ -642,7 +642,7 @@ Answer only from the supplied synthetic text.
 			"Use a scenario that discusses selection for an implementation task or closeout of an implementation assignment.",
 		].join("\\n");
 		const result = await makeExecutor([makeAgent("delegate", {
-			tools: ["read", "grep", "find", "ls", "bash", "edit", "write", "contact_supervisor"],
+			tools: ["read", "grep", "find", "ls", "bash", "edit", "write", "contact_agent"],
 			inheritProjectContext: true,
 			systemPromptMode: "append",
 		})]).execute(
@@ -2906,7 +2906,7 @@ Answer only from the supplied synthetic text.
 			{
 				async: false,
 				workflowScript: `return await runs.run("impl", { agent: "worker", task: "Implement the requested source fix" });`,
-				capabilityCeiling: { version: 1, allowedTools: ["read", "grep", "find", "ls", "contact_supervisor"], denyExtensions: true, sources: ["test"] },
+				capabilityCeiling: { version: 1, allowedTools: ["read", "grep", "find", "ls", "contact_agent"], denyExtensions: true, sources: ["test"] },
 			},
 			new AbortController().signal,
 			undefined,
@@ -3983,7 +3983,7 @@ Answer only from the supplied synthetic text.
 		mockPi.onCall({
 			writeFiles: [{ path: "feature.txt", content: "feature\n" }],
 			steps: [
-				{ jsonl: [events.toolStart("contact_supervisor", { reason: "need_decision", message: "Need a decision" })] },
+				{ jsonl: [events.toolStart("contact_agent", { reason: "need_decision", message: "Need a decision" })] },
 				{ delay: 500, jsonl: [events.assistantMessage("done after coordination")] },
 			],
 		});
@@ -4076,7 +4076,7 @@ Answer only from the supplied synthetic text.
 		mockPi.onCall({
 			matchArgIncludes: "Ask then continue",
 			steps: [
-				{ jsonl: [events.toolStart("contact_supervisor", { reason: "need_decision", message: "Need a decision" })] },
+				{ jsonl: [events.toolStart("contact_agent", { reason: "need_decision", message: "Need a decision" })] },
 				{ delay: 500, jsonl: [events.assistantMessage("done after coordination")] },
 			],
 		});

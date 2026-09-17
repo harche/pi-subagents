@@ -2119,6 +2119,8 @@ export function executeAsyncSingle(
 						...(resolvedToolBudget.budget ? { toolBudget: resolvedToolBudget.budget } : {}),
 						...(params.worktree === true ? { worktree: true } : {}),
 						...(lane ? { lane } : {}),
+						...(params.parentWorkflowRunId ? { siblingWorkflowRunId: params.parentWorkflowRunId } : {}),
+						...(params.workflowKey ? { siblingSelfKey: params.workflowKey } : {}),
 					},
 				],
 				resultPath: params.parentWorkflowRunId !== undefined && (params.revivalLease !== undefined || params.workflowAwaitAsync === true)

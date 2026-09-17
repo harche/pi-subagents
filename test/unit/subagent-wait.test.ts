@@ -210,7 +210,7 @@ describe("bg_wait tool", () => {
 		assert.equal(timed.isError, undefined);
 		assert.deepEqual(timed.details.wait?.activeRunIds, [runId]);
 		assert.equal(timed.details.wait?.reason, "window_elapsed");
-		writeStatus(scope.asyncDirRoot, runId, "running", { sessionId: "owner", activityState: "needs_attention", currentTool: "contact_supervisor" });
+		writeStatus(scope.asyncDirRoot, runId, "running", { sessionId: "owner", activityState: "needs_attention", currentTool: "contact_agent" });
 		const attention = await waitForSubagents({ all: true, stopOnAttention: false }, undefined, deps);
 		assert.match(textOf(attention), /attention required/);
 		const barrier = await waitForSubagents({ all: true }, undefined, { ...deps, hasPendingSupervisorRequest: () => true });
@@ -724,7 +724,7 @@ describe("bg_wait tool", () => {
 					sessionId: "sess-1",
 					pid: 999999,
 					activityState: "needs_attention",
-					currentTool: "contact_supervisor",
+					currentTool: "contact_agent",
 				});
 			};
 
@@ -755,7 +755,7 @@ describe("bg_wait tool", () => {
 						sessionId: "sess-1",
 						pid: 999999,
 						activityState: "needs_attention",
-						currentTool: "contact_supervisor",
+						currentTool: "contact_agent",
 					});
 				},
 			}));
@@ -850,7 +850,7 @@ describe("bg_wait tool", () => {
 		}
 	});
 
-	for (const currentTool of ["contact_supervisor", "intercom"]) {
+	for (const currentTool of ["contact_agent", "intercom"]) {
 		it(`still errors for ${currentTool} attention without a durable owned request`, async () => {
 			const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-wait-drain-unowned-supervisor-"));
 			try {
@@ -1060,7 +1060,7 @@ describe("bg_wait tool", () => {
 			const asyncRoot = path.join(root, "runs");
 			const state = makeState("sess-1");
 			writeStatus(asyncRoot, "run-blocked", "running", {
-				sessionId: "sess-1", pid: 999999, activityState: "needs_attention", currentTool: "contact_supervisor",
+				sessionId: "sess-1", pid: 999999, activityState: "needs_attention", currentTool: "contact_agent",
 			});
 			state.foregroundRuns = new Map([["foreground-live", {
 				runId: "foreground-live", mode: "single", cwd: root, sessionId: "sess-1", updatedAt: 1,
@@ -1206,7 +1206,7 @@ describe("bg_wait tool", () => {
 						index: 0,
 						status: "detached",
 						activityState: "needs_attention",
-						currentTool: "contact_supervisor",
+						currentTool: "contact_agent",
 						updatedAt: 2,
 					};
 				},
@@ -1295,7 +1295,7 @@ describe("bg_wait tool", () => {
 			setTimeout(() => {
 				const child = state.foregroundRuns!.get("foreground-repeated")!.children[0]!;
 				child.activityState = "needs_attention";
-				child.currentTool = "contact_supervisor";
+				child.currentTool = "contact_agent";
 				events.emit("pi-intercom:detach-request", { runId: "foreground-repeated", childIndex: 0 });
 			}, 15);
 

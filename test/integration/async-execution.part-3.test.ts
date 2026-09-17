@@ -323,7 +323,7 @@ describe("async execution utilities", { skip: !available ? "pi packages not avai
 		for (const instruction of [taskArg, systemPrompt]) {
 			assert.match(instruction, /Return the complete artifact in your final response\./);
 			assert.match(instruction, /runtime will persist it to exactly this path:/);
-			assert.match(instruction, /Do not call contact_supervisor merely because no write-capable tool is available\./);
+			assert.match(instruction, /Do not call contact_agent merely because no write-capable tool is available\./);
 			assert.doesNotMatch(instruction, /Write your findings to exactly this path/);
 		}
 		const deadline = Date.now() + 10_000;

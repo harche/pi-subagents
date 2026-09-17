@@ -89,6 +89,7 @@ import { applySteeringRecoveryAgentConfig, asyncReviveRequiresRecoveryDescriptor
 import { closeSteerInbox, consumeSteerRequests, deliverInterruptRequest, readRevivalBriefs, requestAsyncSteer, watchAsyncControlInbox, type SteerDeliveryMode, type SteerRequest } from "../background/control-channel.ts";
 import { createSteeringStatus, recordSteeringRequest, steeringStatus, updateSteeringTarget, waitForSteeringAction } from "../background/steering.ts";
 import { canQueueRetainedAsyncFollowUp, steerAsyncRun } from "./async-steering-action.ts";
+import { recordSupervisorSteer } from "../../intercom/supervisor-inbox.ts";
 import {
 	resolveWorkflowForegroundSteeringTarget,
 	steerWorkflowForegroundTarget,
@@ -4441,7 +4442,13 @@ function workflowDetailsResults(children: WorkflowScriptChildResult[]): SingleRe
 	return children.flatMap((child) => (child.results ?? []).map((result) => result.workflowKey ? result : { ...result, workflowKey: child.key }));
 }
 
-function workflowSteerReceipt(key: string, result: AgentToolResult<Details>): WorkflowSteerResult {
+/** Delivery outcome of a steer result, for the child's inbox record. */
+function steerOutcomeOf(result: AgentToolResult<Details>): { state?: string; isError?: boolean; deliveryStatus?: string } {
+	const steering = result.details.steering;
+	return { ...(steering ? { state: steering.state, deliveryStatus: steering.deliveryStatus } : { state: "failed" }), ...(result.isError === true ? { isError: true } : {}) };
+}
+
+export function workflowSteerReceipt(key: string, result: AgentToolResult<Details>): WorkflowSteerResult {
 	const steering = result.details.steering;
 	const error = result.content.map((part) => part.type === "text" ? part.text : "").filter(Boolean).join("\n") || undefined;
 	if (!steering) return { key, state: "failed", ...(error ? { error } : {}) };
@@ -4609,6 +4616,25 @@ export async function steerWorkflowChildByKey(input: {
 	signal?: AbortSignal;
 	asyncDirRoot?: string;
 	resolveRunId?: () => string | undefined;
+	/** Set by supervisor-originated steers (runs.steer): file the message into the child's inbox on delivery. The sibling relay leaves it unset. */
+	recordAsSupervisor?: boolean;
+}): Promise<WorkflowSteerResult> {
+	const receipt = await steerWorkflowChildByKeyInner(input);
+	if (input.recordAsSupervisor) {
+		recordSupervisorSteer({ state: input.state, target: { workflowRunId: input.workflowRunId, key: input.key }, message: input.message, outcome: receipt });
+	}
+	return receipt;
+}
+
+async function steerWorkflowChildByKeyInner(input: {
+	state: SubagentState;
+	workflowRunId: string;
+	key: string;
+	message: string;
+	options: WorkflowSteerOptions;
+	signal?: AbortSignal;
+	asyncDirRoot?: string;
+	resolveRunId?: () => string | undefined;
 }): Promise<WorkflowSteerResult> {
 	const asyncDirRoot = input.asyncDirRoot ?? DIRS.async;
 	const ackTimeoutMs = input.options.ackTimeoutMs ?? 3_000;
@@ -4660,6 +4686,10 @@ export async function steerWorkflowChildByKey(input: {
 			return { key: input.key, state: "missed", error: `Workflow '${input.workflowRunId}' is ${workflowStatus.state}.` };
 		}
 		if (input.signal?.aborted || Date.now() >= deadline) {
+			// A running workflow whose inventory never lists the key is a bad address, not a startup race.
+			if (workflowStatus && Array.isArray(workflowStatus.steps) && !step && !childRunId) {
+				return { key: input.key, state: "missed", error: `Workflow child '${input.key}' is unknown to workflow '${input.workflowRunId}'.` };
+			}
 			return { key: input.key, state: "missed", error: `Workflow child '${input.key}' had no live steering route.` };
 		}
 		await new Promise<void>((resolve) => setTimeout(resolve, Math.min(10, Math.max(1, deadline - Date.now()))));
@@ -5864,7 +5894,7 @@ export function createSubagentExecutor(deps: ExecutorDeps): {
 							},
 							status: async (keyOrRunId, workflowSignal) => workflowChildResult(keyOrRunId, await execute(randomUUID(), { action: "status", id: keyOrRunId }, workflowSignal, undefined, ctx, preserveActiveSession, workflowParentModel)),
 							resolveResume: (reference, _signal, index) => resolveWorkflowResume(reference, deps, ctx.sessionManager.getSessionFile() ?? null, index),
-							steer: (key, message, options, workflowSignal) => steerWorkflowChildByKey({ state: deps.state, workflowRunId, key, message, options, signal: workflowSignal, resolveRunId: () => workflowChildRunIds.get(key) }),
+							steer: (key, message, options, workflowSignal) => steerWorkflowChildByKey({ state: deps.state, workflowRunId, key, message, options, signal: workflowSignal, resolveRunId: () => workflowChildRunIds.get(key), recordAsSupervisor: true }),
 						});
 						const finalPreflightWarnings = workflowPreflightWarnings(workflowPreflight, workflow.trace, { settled: true });
 						const finalPreflightTrace = annotateWorkflowPreflightTrace(workflow.trace, workflowPreflight);
@@ -6116,7 +6146,7 @@ export function createSubagentExecutor(deps: ExecutorDeps): {
 					},
 					status: async (keyOrRunId, workflowSignal) => workflowChildResult(keyOrRunId, await execute(randomUUID(), { action: "status", id: keyOrRunId }, workflowSignal, undefined, ctx, preserveActiveSession, workflowParentModel)),
 					resolveResume: (reference, _signal, index) => resolveWorkflowResume(reference, deps, ctx.sessionManager.getSessionFile() ?? null, index),
-					steer: (key, message, options, workflowSignal) => steerWorkflowChildByKey({ state: deps.state, workflowRunId: foregroundWorkflowRunId, key, message, options, signal: workflowSignal, resolveRunId: () => workflowChildRunIds.get(key) }),
+					steer: (key, message, options, workflowSignal) => steerWorkflowChildByKey({ state: deps.state, workflowRunId: foregroundWorkflowRunId, key, message, options, signal: workflowSignal, resolveRunId: () => workflowChildRunIds.get(key), recordAsSupervisor: true }),
 				});
 				const finalPreflightWarnings = workflowPreflightWarnings(workflowPreflight, workflow.trace, { settled: true });
 				const finalPreflightTrace = annotateWorkflowPreflightTrace(workflow.trace, workflowPreflight);
@@ -6617,7 +6647,9 @@ export function createSubagentExecutor(deps: ExecutorDeps): {
 				if (resolved?.kind === "foreground") {
 					const route = resolveWorkflowForegroundSteeringTarget({ state: deps.state, childRunId: resolved.id, asyncDirRoot: DIRS.async });
 					if (!route.ok) return { content: [{ type: "text", text: route.message }], isError: true, details: { mode: "management", results: [] } };
-					return steerWorkflowForegroundTarget({ target: route.target, message, mode: resolveSteerDeliveryMode(paramsWithResolvedCwd.mode), index: paramsWithResolvedCwd.index });
+					const foregroundResult = await steerWorkflowForegroundTarget({ target: route.target, message, mode: resolveSteerDeliveryMode(paramsWithResolvedCwd.mode), index: paramsWithResolvedCwd.index });
+					recordSupervisorSteer({ state: deps.state, target: { workflowRunId: route.target.control.parentWorkflowRunId, key: route.target.control.workflowKey }, message, outcome: steerOutcomeOf(foregroundResult) });
+					return foregroundResult;
 				}
 				if (resolved?.kind !== "async") return { content: [{ type: "text", text: `No async run found for '${targetRunId}'.` }], isError: true, details: { mode: "management", results: [] } };
 				const resolvedStatus = resolved.location.asyncDir ? readStatus(resolved.location.asyncDir) : null;
@@ -6628,7 +6660,7 @@ export function createSubagentExecutor(deps: ExecutorDeps): {
 					const unsupported = externalRunnerControlError(resolved.location.asyncDir, "steer");
 					if (unsupported) return unsupported;
 				}
-				return steerAsyncRun(compactOptional<Parameters<typeof steerAsyncRun>[0]>({
+				const asyncSteerResult = await steerAsyncRun(compactOptional<Parameters<typeof steerAsyncRun>[0]>({
 					state: deps.state,
 					findPendingAsks: deps.findPendingAsks,
 					runId: resolved.id,
@@ -6653,6 +6685,8 @@ export function createSubagentExecutor(deps: ExecutorDeps): {
 							}
 					),
 				}));
+				recordSupervisorSteer({ state: deps.state, target: { asyncDir: resolved.location.asyncDir }, message, outcome: steerOutcomeOf(asyncSteerResult) });
+				return asyncSteerResult;
 			}
 			if (action === "append-step") {
 				return appendStepToAsyncChain(omitUndefinedProperties({ params: paramsWithResolvedCwd, requestCwd, ctx, deps, parentModel: requestParentModel }));

@@ -142,7 +142,7 @@ describe("subagent control attention state", () => {
 
 		assert.equal(shouldEmitOpenToolAttention({ config: defaults, currentTool: "bash", currentToolStartedAt: 0, now: 239_999 }), false);
 		assert.equal(shouldEmitOpenToolAttention({ config: defaults, currentTool: "bash", currentToolStartedAt: 0, now: 240_000 }), true);
-		assert.equal(shouldEmitOpenToolAttention({ config: defaults, currentTool: "contact_supervisor", currentToolStartedAt: 0, now: 999_999 }), false);
+		assert.equal(shouldEmitOpenToolAttention({ config: defaults, currentTool: "contact_agent", currentToolStartedAt: 0, now: 999_999 }), false);
 		assert.equal(shouldEmitOpenToolAttention({ config: { ...defaults, enabled: false }, currentTool: "bash", currentToolStartedAt: 0, now: 999_999 }), false);
 	});
 
@@ -254,7 +254,7 @@ describe("subagent control attention state", () => {
 			runId: "78f659a3",
 			agent: "worker",
 			reason: "supervisor_request",
-			currentTool: "contact_supervisor",
+			currentTool: "contact_agent",
 		});
 
 		const message = formatControlNoticeMessage(event, "subagent-worker-78f659a3");

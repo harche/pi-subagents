@@ -385,11 +385,21 @@ function appendDiagnosticJsonl(filePath: string, line: string, droppedEventType?
 	state.diagnosticsTruncated = true;
 }
 
-function isBlockingSupervisorTool(toolName: string | undefined, args: unknown): boolean {
+export function isBlockingSupervisorTool(toolName: string | undefined, args: unknown): boolean {
 	if (!args || typeof args !== "object" || Array.isArray(args)) return false;
-	if (toolName === "contact_supervisor") {
-		const reason = (args as Record<string, unknown>).reason;
-		return reason === "need_decision" || reason === "interview_request";
+	if (toolName === "contact_agent" || toolName === "contact_supervisor") {
+		const input = args as Record<string, unknown>;
+		// Answering a peer ask never waits on the supervisor.
+		if (input.replyTo !== undefined) return false;
+		// An omitted or blank `to` addresses the supervisor (pre-rename compatibility).
+		const to = typeof input.to === "string" ? input.to.trim().toLowerCase() : "";
+		if (to === "" || to === "supervisor") {
+			return input.reason === "need_decision" || input.reason === "interview_request" || input.reason === undefined;
+		}
+		// A sibling-directed ask (blocking or not) waits on a peer, not on the
+		// supervisor: there is no supervisor request to answer, so it must not
+		// flip the child to needs_attention or cut a supervisor wait short.
+		return false;
 	}
 	return toolName === "intercom" && (args as Record<string, unknown>).action === "ask";
 }
@@ -691,6 +701,10 @@ interface SingleStepContext {
 	deadlineAt?: number;
 	childIntercomTarget?: string;
 	orchestratorIntercomTarget?: string;
+	/** Workflow run id for same-workflow sibling scope (from the launch workflow identity). */
+	siblingWorkflowRunId?: string;
+	/** This child's stable workflow key for sibling identity binding. */
+	siblingSelfKey?: string;
 	nestedRoute?: NestedRouteInfo;
 	capabilityCeiling?: ResolvedSubagentCapabilityCeiling;
 	runFanoutBudget?: RunFanoutBudgetDescriptor;
@@ -4600,6 +4614,8 @@ export async function runSubagent(
 				inheritedChildRuntime: config.inheritedChildRuntime,
 				childIntercomTarget: config.childIntercomTargets?.[flatIndex],
 				orchestratorIntercomTarget: config.controlIntercomTarget,
+				...(config.parentWorkflowRunId ? { siblingWorkflowRunId: config.parentWorkflowRunId } : {}),
+				...(config.workflowKey ? { siblingSelfKey: config.workflowKey } : {}),
 				nestedRoute: config.nestedRoute,
 				capabilityCeiling: config.capabilityCeiling,
 				runFanoutBudget: config.runFanoutBudget,

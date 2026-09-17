@@ -21,7 +21,7 @@ function pausedWorkflow(childRunId: string, extra?: Partial<NonNullable<AsyncSta
 			runId: childRunId,
 			status: "paused",
 			activityState: "needs_attention",
-			currentTool: "contact_supervisor",
+			currentTool: "contact_agent",
 			...extra,
 		}],
 	};

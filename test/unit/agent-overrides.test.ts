@@ -152,7 +152,7 @@ describe("builtin agent overrides", () => {
 
 		const builtins = discoverAgentsAll(tempProject).builtin;
 		assert.equal(builtins.find((agent) => agent.name === "researcher")?.tools, undefined);
-		assert.deepEqual(builtins.find((agent) => agent.name === "reviewer")?.tools, ["read", "grep", "find", "ls", "contact_supervisor"]);
+		assert.deepEqual(builtins.find((agent) => agent.name === "reviewer")?.tools, ["read", "grep", "find", "ls", "contact_agent"]);
 	});
 
 	it("keeps explicit empty builtin tool allowlists distinct from inherited tools", () => {

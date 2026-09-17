@@ -317,7 +317,7 @@ describe("workflow receipts", () => {
 		assert.equal(receipt.entries.advisor?.externalAdapter?.handoff.mode, "fresh");
 		assert.deepEqual(receipt.entries.advisor?.externalAdapter?.machine, { provider: "herdr", id: "machine-1", label: "workmac", target: "host.example", cwd: "/srv/repo", remoteGit: { head: "abc123", branch: "main", dirty: true } });
 		assert.match(receipt.entries.advisor?.resumability.state === "not-resumable" ? receipt.entries.advisor.resumability.reason : "", /no durable external session identity/);
-		assert.doesNotMatch(serialized, /artifactPaths|rawOutput|handoffText|contact_supervisor/);
+		assert.doesNotMatch(serialized, /artifactPaths|rawOutput|handoffText|contact_agent/);
 		assert.ok(Buffer.byteLength(serialized) < 2_000, `external receipt metadata unexpectedly large: ${Buffer.byteLength(serialized)}`);
 		const asyncRoot = tempRoot();
 		const asyncDir = path.join(asyncRoot, "workflow-external");

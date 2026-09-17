@@ -239,7 +239,7 @@ function summarizeForegroundChildren(run: ForegroundResumeRun, indices: Set<numb
 }
 
 function foregroundChildrenNeedingAttention(run: ForegroundResumeRun, indices: Set<number>) {
-	return run.children.filter((child) => indices.has(child.index) && child.status === "detached" && child.activityState === "needs_attention" && child.currentTool === "contact_supervisor");
+	return run.children.filter((child) => indices.has(child.index) && child.status === "detached" && child.activityState === "needs_attention" && child.currentTool === "contact_agent");
 }
 
 function formatForegroundAttention(run: ForegroundResumeRun, children: ReturnType<typeof foregroundChildrenNeedingAttention>, elapsedMs: number): AgentToolResult<Details> {
@@ -255,9 +255,9 @@ function needsAttention(run: AsyncRunSummary): boolean {
 }
 
 function hasSupervisorTool(run: AsyncRunSummary): boolean {
-	return run.currentTool === "contact_supervisor"
+	return run.currentTool === "contact_agent"
 		|| run.currentTool === "intercom"
-		|| run.steps.some((step) => step.currentTool === "contact_supervisor" || step.currentTool === "intercom");
+		|| run.steps.some((step) => step.currentTool === "contact_agent" || step.currentTool === "intercom");
 }
 
 function backgroundWorkIdentity(item: RegisteredBackgroundWorkItem): string {

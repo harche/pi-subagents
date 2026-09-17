@@ -115,7 +115,7 @@ function writeControlRecord(runDir: string, event: ControlEvent): void {
 	fs.appendFileSync(path.join(runDir, "events.jsonl"), `${JSON.stringify({ type: "subagent.control", channels: ["event"], event })}\n`, "utf-8");
 }
 
-function supervisorControlEvent(runId: string, toolCallId: string, currentTool = "contact_supervisor"): ControlEvent {
+function supervisorControlEvent(runId: string, toolCallId: string, currentTool = "contact_agent"): ControlEvent {
 	return {
 		type: "needs_attention",
 		to: "needs_attention",

@@ -37,6 +37,7 @@ import type { ChildTranscriptWriter } from "../../shared/child-transcript.ts";
 import type { ChildSessionLaunch, ChildSessionStorage } from "./child-session.ts";
 import type { ArbiterModelContext } from "./llm-intent-arbiter.ts";
 import { resolveRequiredChildExtensions, type RequiredChildExtensionSnapshot } from "../../shared/required-child-extensions.ts";
+import { excludedSiblingTools } from "../../intercom/sibling-roster.ts";
 
 /** Environment variable pi-mcp-adapter reads for the tools a child may expose. */
 export const MCP_DIRECT_TOOLS_ENV = "MCP_DIRECT_TOOLS";
@@ -94,6 +95,10 @@ export interface BuildInProcessChildLaunchInput {
 	runId?: string;
 	childAgentName: string;
 	childIndex: number;
+	/** Workflow run id for same-workflow sibling scope (from the launch workflow identity). */
+	siblingWorkflowRunId?: string;
+	/** This child's stable workflow key for sibling identity binding. */
+	siblingSelfKey?: string;
 	nestedRoute?: { rootRunId: string; eventSink: string; controlInbox: string; capabilityToken: string };
 	runFanoutBudget?: RunFanoutBudgetDescriptor;
 	structuredOutput?: StructuredOutputRuntime;
@@ -226,6 +231,7 @@ export function buildInProcessChildLaunch(input: BuildInProcessChildLaunchInput)
 	const permissions = input.permissionRules && Object.keys(input.permissionRules).length > 0
 		? { rules: input.permissionRules, ...(input.permissionAuditPath ? { auditPath: input.permissionAuditPath } : {}) }
 		: undefined;
+	const siblingToolsExcluded = excludedSiblingTools(input.excludeTools);
 	let supervisorDir: string | undefined;
 	if (input.orchestratorIntercomTarget && input.parentSessionId && input.runId) {
 		supervisorDir = supervisorChannelDir(input.runId, input.childAgentName, input.childIndex);
@@ -249,6 +255,10 @@ export function buildInProcessChildLaunch(input: BuildInProcessChildLaunchInput)
 		...(input.orchestratorIntercomTarget ? { orchestratorTarget: input.orchestratorIntercomTarget } : {}),
 		...(input.parentSessionId ? { orchestratorSessionId: input.parentSessionId, parentSessionId: input.parentSessionId } : {}),
 		...(supervisorDir ? { supervisorChannelDir: supervisorDir } : {}),
+		...(input.siblingWorkflowRunId?.trim() && input.siblingSelfKey?.trim()
+			? { sibling: { workflowRunId: input.siblingWorkflowRunId.trim(), selfKey: input.siblingSelfKey.trim() } }
+			: {}),
+		...(siblingToolsExcluded.length > 0 ? { siblingToolsExcluded } : {}),
 		...(nestedRoute ? { nestedRoute } : {}),
 		...(fanout && parentRunId ? { nestedParent: { parentRunId, parentChildIndex, depth: parentDepth, path: parentPath } } : {}),
 		...(fanout && (input.runFanoutBudget ?? inherited?.runFanoutBudget) ? { runFanoutBudget: input.runFanoutBudget ?? inherited?.runFanoutBudget } : {}),

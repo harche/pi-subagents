@@ -1049,7 +1049,7 @@ async function runSingleAttempt(
 					structuredOutputToolInvoked = true;
 					structuredOutputMessageStartIndex = result.messages?.length ?? 0;
 				}
-				if (options.allowIntercomDetach && (evt.toolName === "intercom" || evt.toolName === "contact_supervisor")) {
+				if (options.allowIntercomDetach && (evt.toolName === "intercom" || evt.toolName === "contact_agent")) {
 					intercomStarted = true;
 				}
 				progress.toolCount++;

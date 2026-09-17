@@ -54,6 +54,18 @@ export interface ChildSupervisorMetadata {
 }
 
 /**
+ * Same-workflow sibling identity, threaded from the workflow host through the
+ * existing workflowParentRunId/workflowKey carrier (never from child input).
+ * Absent for non-workflow children, which have no siblings.
+ */
+export interface ChildSiblingIdentity {
+	/** Workflow run id; scopes the sibling mailbox to one workflow run. */
+	workflowRunId: string;
+	/** This child's stable workflow key; binds send/read identity server-side. */
+	selfKey: string;
+}
+
+/**
  * Everything the child-side hooks need to know about the launch. The process
  * that hosts the child session builds it and passes it to the hooks directly.
  */
@@ -68,6 +80,10 @@ export interface ChildRuntimeConfig {
 	orchestratorSessionId?: string;
 	parentSessionId?: string;
 	supervisorChannelDir?: string;
+	/** Same-workflow sibling identity; set only for workflow children. */
+	sibling?: ChildSiblingIdentity;
+	/** Individual sibling tools the agent excluded; each stays unregistered while the rest still work. */
+	siblingToolsExcluded?: string[];
 	/** Route the child reports nested runs on; set only for fanout-authorized children. */
 	nestedRoute?: ChildNestedRoute;
 	nestedParent?: ChildNestedParent;

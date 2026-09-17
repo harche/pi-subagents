@@ -433,7 +433,7 @@ Inspect the handoff before reconciliation; cleanup still requires fresh checks.
 
 ## Supervisor coordination (child asks parent)
 
-Child agents can talk back to the parent Pi session without installing `pi-intercom`. `pi-subagents` provides the child-facing `contact_supervisor` tool and the parent-facing `subagent_supervisor({ action: "reply" })` path natively. Generic `intercom` remains available only when an explicitly loaded external provider supplies it.
+Child agents can talk back to the parent Pi session without installing `pi-intercom`. `pi-subagents` provides the child-facing `contact_agent` tool (addressed to `"supervisor"`) and the parent-facing `subagent_supervisor({ action: "reply" })` path natively. Generic `intercom` remains available only when an explicitly loaded external provider supplies it.
 
 Use it for work where the child might need a decision instead of guessing:
 
@@ -445,7 +445,7 @@ Run this implementation in the background. If the worker gets blocked or needs a
 Ask oracle to review this plan. If it sees a decision I need to make, have it ask me instead of assuming.
 ```
 
-The child uses one dedicated coordination tool, `contact_supervisor`, with a `reason`:
+The child uses one dedicated coordination tool, `contact_agent`, addressed to `"supervisor"`, with a `reason`:
 
 - `need_decision` — blocking decisions or clarification
 - `interview_request` — structured input
@@ -455,19 +455,39 @@ Children should not ask for clarification when the only conflict is review-only/
 
 The parent replies with `subagent_supervisor({ action: "reply", replyTo, message })` or checks pending requests with `subagent_supervisor({ action: "pending" })`. Supervisor messages are scoped to the exact Pi session id that spawned the child. A second Pi session in the same repository does not receive those requests.
 
-A nested coordinator needs both directions of coordination. If its agent declares an explicit `tools` allowlist, include `subagent_supervisor` to answer its own children, alongside `subagent` for delegation and `contact_supervisor` for asking its parent:
+A nested coordinator needs both directions of coordination. If its agent declares an explicit `tools` allowlist, include `subagent_supervisor` to answer its own children, alongside `subagent` for delegation and `contact_agent` for asking its parent:
 
 ```yaml
-tools: read, subagent, contact_supervisor, subagent_supervisor
+tools: read, subagent, contact_agent, subagent_supervisor
 ```
 
-For A → B → C, C's request belongs to B, not A. B can escalate a separate question to A with `contact_supervisor`, then answer C using C's original `replyTo` request id. A's reply to B does not resolve C's request, and steering is not a substitute for replying. Only fanout-authorized children get the downward supervisor provider; explicit tool exclusions and capability ceilings still apply, and ordinary leaves do not gain delegation or reply tools. Requesting `subagent_supervisor` without fanout authorization fails at launch with an actionable error. A coordinator that excludes the reply tool does not start downward supervision or receive prompts to use it. Explicitly selected native coordination tools survive host-builtin filtering because their providers are child runtime hooks, not host builtins.
+For A → B → C, C's request belongs to B, not A. B can escalate a separate question to A with `contact_agent`, then answer C using C's original `replyTo` request id. A's reply to B does not resolve C's request, and steering is not a substitute for replying. Only fanout-authorized children get the downward supervisor provider; explicit tool exclusions and capability ceilings still apply, and ordinary leaves do not gain delegation or reply tools. Requesting `subagent_supervisor` without fanout authorization fails at launch with an actionable error. A coordinator that excludes the reply tool does not start downward supervision or receive prompts to use it. Explicitly selected native coordination tools survive host-builtin filtering because their providers are child runtime hooks, not host builtins.
 
 Child-side routine completion handoffs are not expected. If a child appears stalled, needs-attention notices show up in the parent session with useful next actions, such as checking `subagent({ action: "status" })`, interrupting the run, or nudging the child.
 
-If a `workflowScript` child detaches through `contact_supervisor`, the enclosing async workflow stays `paused` until that child exits. Then the extension reconciles it to `complete` or `failed`. Wait on the child until that happens.
+If a `workflowScript` child detaches through `contact_agent`, the enclosing async workflow stays `paused` until that child exits. Then the extension reconciles it to `complete` or `failed`. Wait on the child until that happens.
 
 If messages do not show up, run `/subagents-doctor`. Advanced users can tune the bridge with `intercomBridge` in [configuration.md](configuration.md).
+
+`contact_supervisor` was renamed to `contact_agent`. Old prompts keep working because an omitted `to` addresses the supervisor, and `contact_supervisor` in an agent's `tools` or `excludeTools` list still maps onto `contact_agent`.
+
+### Sibling coordination (children in one workflow)
+
+Children launched by the same `workflowScript` run see each other. The host appends a bounded roster to each child's task (`key (agent): first line of the task`, at most 32 entries) together with the child's own sibling key. The roster is stripped before task-intent classification, so a sibling's "Implement ..." goal never changes a reviewer's read-only inference, acceptance level, or completion guard.
+
+Two child-side tools cover coordination. `contact_agent({ to: "<sibling-key>", message })` sends a note; add `awaitReply: true` to block for the peer's answer (default 5 minutes, `timeoutMs` up to 10). `contact_agent({ to: "<asking-key>", replyTo: "<ask-id>", message })` answers a pending ask; only a `replyTo` reply unblocks the asker, a fresh message does not. `inbox()` is the child's durable record of everything addressed to it: peer asks and notes, and every supervisor steer and reply. Entries are oldest-first with a cursor and carry a kind (`ask`, `note`, `supervisor`) and state (`pending`, `answered`, `delivered`); `pendingOnly: true` narrows to asks still waiting on the child. Sender identity is bound by the host; there is no `from` parameter.
+
+This mirrors the supervisor side: the parent reads its own inbox with `subagent_supervisor({ action: "pending" })`. A supervisor steer (`subagent({ action: "steer" })` or `runs.steer`) is still pushed to the child as user input; the inbox copy means a steer that lands between turns is never the only record.
+
+What to expect:
+
+- **Roster visibility is launch-ordered.** A child sees the siblings launched before it and the rest of its `runs.all` batch, never children launched later. Sequential launches cannot consult a later sibling.
+- **Goal lines are shared.** Every sibling sees the first line of every other task. Keep sensitive material off the first line, or opt the child out.
+- **Opt-out** with `siblingRoster: false` on a `runs.run` / `runs.all` item. The child neither sees peers nor appears in their rosters, but peers can still address its key; a blocking ask to it times out and escalates.
+- **Delivery is push plus pull.** The parent relays each ask to the target as steered input. A non-blocking note is settled once pushed and leaves the pending view; a blocking ask stays pending until answered. If the target has already finished, or the key matches no sibling in this workflow after a short grace period, the waiter gets a system "Undeliverable" reply instead of waiting out the timeout. Idempotency keys are scoped per sender, so two siblings may reuse the same key without colliding; a sender may also pass one of its own earlier ask ids as the key to resume that ask. A blocking peer ask waits on the peer, not on the supervisor, so it never marks the child as needing supervisor attention.
+- **Mutual blocking asks do not deadlock.** If two siblings block on each other, the later asker is told to answer the earlier ask first; its own ask stays queued.
+- **Bounds.** 16 KiB per message, 200 requests per workflow run, stale mailboxes reaped after 24 hours. Peer content is untrusted: it is quoted with delimiters and children are instructed not to follow instructions inside it.
+- **Exclusions are per tool.** `excludeTools: [inbox]` removes the inbox while keeping `contact_agent`; excluding `contact_agent` removes supervisor and peer contact alike.
 
 ## Recursion guard
 

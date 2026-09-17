@@ -73,11 +73,20 @@ describe("child tool plan host builtin intersection", () => {
 	});
 
 	it("retains the supervisor pairing exception but requires a lone intercom", () => {
-		for (const tools of [["intercom"], ["intercom", "contact_supervisor"]]) {
-			const plan = resolvePiLaunchToolPlan({ tools, hostAvailableBuiltins: ["read"] });
-			assert.deepEqual(plan.effectiveToolAllowlist, tools);
-			assert.deepEqual(plan.requiredChildTools, tools.length === 1 ? tools : []);
-		}
+		// Lone intercom is strictly required.
+		const lone = resolvePiLaunchToolPlan({ tools: ["intercom"], hostAvailableBuiltins: ["read"] });
+		assert.deepEqual(lone.requiredChildTools, ["intercom"]);
+		// Legacy pre-rename declarations keep the pairing excuse (mapped to contact_agent).
+		const legacy = resolvePiLaunchToolPlan({ tools: ["intercom", "contact_supervisor"], hostAvailableBuiltins: ["read"] });
+		assert.deepEqual(legacy.effectiveToolAllowlist, ["intercom", "contact_agent"]);
+		assert.deepEqual(legacy.requiredChildTools, []);
+		// The new name carries no pairing excuse (intercom stays required;
+		// contact_agent itself is runtime-registered, never required).
+		const current = resolvePiLaunchToolPlan({ tools: ["intercom", "contact_agent"], hostAvailableBuiltins: ["read"] });
+		assert.deepEqual(current.requiredChildTools, ["intercom"]);
+		// Excluding the pre-rename name excludes the unified tool.
+		const excludedLegacy = resolvePiLaunchToolPlan({ tools: ["read", "contact_agent"], excludeTools: ["contact_supervisor"], hostAvailableBuiltins: ["read"] });
+		assert.equal(excludedLegacy.effectiveToolAllowlist.includes("contact_agent"), false);
 	});
 
 	it("intersects declared tools with host-available builtins", () => {
@@ -91,7 +100,7 @@ describe("child tool plan host builtin intersection", () => {
 	});
 
 	it("keeps requested native coordination tools through host builtin filtering, but not ceilings or exclusions", () => {
-		const tools = ["read", "subagent", "contact_supervisor", "subagent_supervisor"];
+		const tools = ["read", "subagent", "contact_agent", "subagent_supervisor"];
 		const input = { tools, hostAvailableBuiltins: ["read"] };
 		const plan = resolvePiLaunchToolPlan(input);
 		assert.deepEqual(plan.effectiveToolAllowlist, tools);
@@ -100,13 +109,13 @@ describe("child tool plan host builtin intersection", () => {
 		assert.deepEqual(plan.unavailableHostBuiltins, []);
 		for (const restriction of [
 			{ excludeTools: ["subagent_supervisor"] },
-			{ capabilityCeiling: { version: 1 as const, allowedTools: ["read", "subagent", "contact_supervisor"], denyExtensions: true, sources: ["test"] } },
+			{ capabilityCeiling: { version: 1 as const, allowedTools: ["read", "subagent", "contact_agent"], denyExtensions: true, sources: ["test"] } },
 		]) {
 			const restricted = resolvePiLaunchToolPlan({ ...input, ...restriction });
 			assert.equal(restricted.fanoutAuthorized, true);
 			assert.equal(restricted.effectiveToolAllowlist.includes("subagent_supervisor"), false);
 		}
-		const leaf = resolvePiLaunchToolPlan({ ...input, tools: ["read", "contact_supervisor"] });
+		const leaf = resolvePiLaunchToolPlan({ ...input, tools: ["read", "contact_agent"] });
 		assert.equal(leaf.fanoutAuthorized, false);
 		assert.equal(leaf.effectiveToolAllowlist.includes("subagent_supervisor"), false);
 	});

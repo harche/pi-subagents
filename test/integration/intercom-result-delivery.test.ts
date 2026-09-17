@@ -309,7 +309,7 @@ describe("intercom result delivery cutover", { skip: !available ? "executor not 
 		const isolatedArgs = await readMockCallArgs(0);
 		const normalArgs = await readMockCallArgs(1);
 		assert.equal(isolatedArgs[isolatedArgs.indexOf("--tools") + 1], "read");
-		assert.equal(normalArgs[normalArgs.indexOf("--tools") + 1], "read,contact_supervisor");
+		assert.equal(normalArgs[normalArgs.indexOf("--tools") + 1], "read,contact_agent");
 		assert.equal(events.emitted.filter((entry) => entry.channel === "subagent:result-intercom").length, 1);
 		assert.deepEqual(result.details?.workflow?.value, { isolated: "Isolated child output", normal: "Normal child output" });
 	});
@@ -1511,7 +1511,7 @@ describe("intercom result delivery cutover", { skip: !available ? "executor not 
 	it("status recovers remembered detached foreground output after child exit", async () => {
 		mockPi.onCall({
 			steps: [
-				{ jsonl: [events.toolStart("contact_supervisor", { reason: "need_decision", message: "Need a decision" })] },
+				{ jsonl: [events.toolStart("contact_agent", { reason: "need_decision", message: "Need a decision" })] },
 				{ delay: 50, jsonl: [events.assistantMessage("final recovered answer")] },
 			],
 		});
@@ -1523,7 +1523,7 @@ describe("intercom result delivery cutover", { skip: !available ? "executor not 
 			new AbortController().signal,
 			(update: { details?: { progress?: Array<{ currentTool?: string }> } }) => {
 				if (detachEmitted) return;
-				if (!update.details?.progress?.some((entry) => entry.currentTool === "contact_supervisor")) return;
+				if (!update.details?.progress?.some((entry) => entry.currentTool === "contact_agent")) return;
 				detachEmitted = true;
 				bus.emit(INTERCOM_DETACH_REQUEST_EVENT, { requestId: "single-detached-status" });
 			},
@@ -1583,7 +1583,7 @@ describe("intercom result delivery cutover", { skip: !available ? "executor not 
 		].join("\n");
 		mockPi.onCall({
 			steps: [
-				{ jsonl: [events.toolStart("contact_supervisor", { reason: "need_decision", message: "Need a decision" })] },
+				{ jsonl: [events.toolStart("contact_agent", { reason: "need_decision", message: "Need a decision" })] },
 				{ delay: 75, jsonl: [events.assistantMessage(acceptanceReport)] },
 			],
 		});
@@ -1594,7 +1594,7 @@ describe("intercom result delivery cutover", { skip: !available ? "executor not 
 			{ agent: "a", task: "ask supervisor", acceptance: { level: "checked", criteria: ["Review completed"] } },
 			new AbortController().signal,
 			(update: { details?: { progress?: Array<{ currentTool?: string }> } }) => {
-				if (detachEmitted || !update.details?.progress?.some((entry) => entry.currentTool === "contact_supervisor")) return;
+				if (detachEmitted || !update.details?.progress?.some((entry) => entry.currentTool === "contact_agent")) return;
 				detachEmitted = true;
 				bus.emit(INTERCOM_DETACH_REQUEST_EVENT, { requestId: "single-detached-completion" });
 			},
@@ -1664,7 +1664,7 @@ describe("intercom result delivery cutover", { skip: !available ? "executor not 
 		].join("\n");
 		mockPi.onCall({
 			steps: [
-				{ jsonl: [events.toolStart("contact_supervisor", { reason: "need_decision", message: "Need a decision" })] },
+				{ jsonl: [events.toolStart("contact_agent", { reason: "need_decision", message: "Need a decision" })] },
 				{ delay: 75, jsonl: [events.assistantMessage(rejectedReport)] },
 			],
 		});
@@ -1675,7 +1675,7 @@ describe("intercom result delivery cutover", { skip: !available ? "executor not 
 			{ agent: "a", task: "ask supervisor", acceptance: { level: "checked", criteria: ["Review completed"] } },
 			new AbortController().signal,
 			(update: { details?: { progress?: Array<{ currentTool?: string }> } }) => {
-				if (detachEmitted || !update.details?.progress?.some((entry) => entry.currentTool === "contact_supervisor")) return;
+				if (detachEmitted || !update.details?.progress?.some((entry) => entry.currentTool === "contact_agent")) return;
 				detachEmitted = true;
 				bus.emit(INTERCOM_DETACH_REQUEST_EVENT, { requestId: "single-detached-failed-acceptance" });
 			},
@@ -1758,7 +1758,7 @@ describe("intercom result delivery cutover", { skip: !available ? "executor not 
 	it("resume action rejects detached foreground children that may still be live", async () => {
 		mockPi.onCall({
 			steps: [
-				{ jsonl: [events.toolStart("contact_supervisor", { reason: "need_decision", message: "Need a decision" })] },
+				{ jsonl: [events.toolStart("contact_agent", { reason: "need_decision", message: "Need a decision" })] },
 				{ delay: 1000, jsonl: [events.assistantMessage("after reply")] },
 			],
 		});
@@ -1770,7 +1770,7 @@ describe("intercom result delivery cutover", { skip: !available ? "executor not 
 			new AbortController().signal,
 			(update: { details?: { progress?: Array<{ currentTool?: string }> } }) => {
 				if (detachEmitted) return;
-				if (!update.details?.progress?.some((entry) => entry.currentTool === "contact_supervisor")) return;
+				if (!update.details?.progress?.some((entry) => entry.currentTool === "contact_agent")) return;
 				detachEmitted = true;
 				bus.emit(INTERCOM_DETACH_REQUEST_EVENT, { requestId: "single-detached" });
 			},
@@ -1791,7 +1791,7 @@ describe("intercom result delivery cutover", { skip: !available ? "executor not 
 		assert.match(fleetText, /Foreground runs:/);
 		assert.ok(fleetText.includes(runId));
 		assert.match(fleetText, /running/);
-		assert.match(fleetText, /contact_supervisor/);
+		assert.match(fleetText, /contact_agent/);
 
 		const resumed = await executor.execute(
 			"foreground-detached-resume",

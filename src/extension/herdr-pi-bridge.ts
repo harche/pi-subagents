@@ -74,16 +74,24 @@ export default function registerHerdrPiBridge(pi: ExtensionAPI): void {
 	const activeTools = (ctx: BridgeContext) => ctx.getActiveTools?.() ?? [];
 
 	pi.registerTool({
-		name: "contact_supervisor",
-		label: "Contact supervisor",
-		description: "Contact the parent/supervisor session for a blocking decision, structured interview, or progress update.",
-		parameters: Type.Object({ reason: Type.Union([Type.Literal("need_decision"), Type.Literal("interview_request"), Type.Literal("progress_update")]), message: Type.Optional(Type.String({ maxLength: 65_536 })), interview: Type.Optional(Type.Unknown()) }, { additionalProperties: false }),
-		execute: async (_toolCallId, input: { reason: "need_decision" | "interview_request" | "progress_update"; message?: string; interview?: unknown }) => {
-			if (input.reason !== "interview_request" && !input.message?.trim()) throw new Error("message is required for supervisor decisions and progress updates.");
+		name: "contact_agent",
+		label: "Contact agent",
+		description: "Contact the parent/supervisor session for a blocking decision, structured interview, or progress update. Only to: \"supervisor\" is reachable from a herdr placement.",
+		// Same parameter surface as the native contact_agent so the shared intercom
+		// instructions validate here too; sibling-only fields are accepted and ignored.
+		parameters: Type.Object({ to: Type.Optional(Type.String({ maxLength: 128 })), reason: Type.Optional(Type.Union([Type.Literal("need_decision"), Type.Literal("interview_request"), Type.Literal("progress_update")])), message: Type.Optional(Type.String({ maxLength: 65_536 })), interview: Type.Optional(Type.Unknown()), about: Type.Optional(Type.String({ maxLength: 128 })), awaitReply: Type.Optional(Type.Boolean()), replyTo: Type.Optional(Type.String({ maxLength: 128 })), timeoutMs: Type.Optional(Type.Integer({ minimum: 1 })), idempotencyKey: Type.Optional(Type.String({ maxLength: 128 })) }, { additionalProperties: false }),
+		execute: async (_toolCallId, input: { to?: string; reason?: "need_decision" | "interview_request" | "progress_update"; message?: string; interview?: unknown; about?: string; awaitReply?: boolean; replyTo?: string }) => {
+			if (input.replyTo !== undefined) throw new Error("replyTo answers a sibling ask; sibling messaging is not available from a herdr placement.");
+			const to = (input.to ?? "supervisor").trim().toLowerCase();
+			if (to !== "supervisor") throw new Error(`contact_agent can only reach the supervisor from a herdr placement; sibling '${input.to}' is not addressable here. Use to: "supervisor" with about: "${input.to}" instead.`);
+			const reason = input.reason ?? "need_decision";
+			if (reason !== "progress_update" && input.awaitReply === false) throw new Error("contact_agent to supervisor with a blocking reason requires waiting; use reason progress_update for fire-and-forget.");
+			if (reason !== "interview_request" && !input.message?.trim()) throw new Error("message is required for supervisor decisions and progress updates.");
 			const id = `sup_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-			send({ type: "supervisor-request", requestId: id, reason: input.reason, message: input.message?.slice(0, 65_536) ?? "", ...(input.interview !== undefined ? { interview: input.interview } : {}), expectsReply: input.reason !== "progress_update", nativeSessionId });
-			if (input.reason === "progress_update") { await new Promise<string>((resolve) => supervisor.set(id, { reason: input.reason, resolve })); return { content: [{ type: "text", text: "Supervisor progress update queued." }], details: { delivered: true, requestId: id, reason: input.reason } }; }
-			const reason = input.reason as "need_decision" | "interview_request"; const answer = await new Promise<string>((resolve) => supervisor.set(id, { reason, resolve })); const details: Record<string, unknown> = { requestId: id, reason }; if (reason === "interview_request") try { details.structuredReply = JSON.parse(answer.replace(/^```(?:json)?\s*|\s*```$/giu, "")); } catch { details.structuredReplyParseError = "Supervisor interview reply was not valid JSON."; }
+			const about = input.about?.trim();
+			send({ type: "supervisor-request", requestId: id, reason, message: input.message?.slice(0, 65_536) ?? "", ...(input.interview !== undefined ? { interview: input.interview } : {}), ...(about ? { siblingTarget: about } : {}), expectsReply: reason !== "progress_update", nativeSessionId });
+			if (reason === "progress_update") { await new Promise<string>((resolve) => supervisor.set(id, { reason, resolve })); return { content: [{ type: "text", text: "Supervisor progress update queued." }], details: { delivered: true, requestId: id, reason } }; }
+			const answer = await new Promise<string>((resolve) => supervisor.set(id, { reason, resolve })); const details: Record<string, unknown> = { requestId: id, reason }; if (reason === "interview_request") try { details.structuredReply = JSON.parse(answer.replace(/^```(?:json)?\s*|\s*```$/giu, "")); } catch { details.structuredReplyParseError = "Supervisor interview reply was not valid JSON."; }
 			return { content: [{ type: "text", text: `**Reply from supervisor:**\n${answer}` }], details };
 		},
 	});

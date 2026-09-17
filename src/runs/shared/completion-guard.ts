@@ -1,9 +1,13 @@
 import type { Message } from "@earendil-works/pi-ai";
 import type { AcceptanceRole, TrackedMutationEvidence } from "../../shared/types.ts";
 import { isMutatingTool } from "./long-running-guard.ts";
-import { classifyTaskMutationIntent, expectsImplementationMutation, taskMayMutate } from "./task-intent.ts";
+import { classifyTaskMutationIntent, expectsImplementationMutation as expectsImplementationMutationRaw, taskMayMutate } from "./task-intent.ts";
+import { stripSiblingRosterSection } from "../../intercom/sibling-roster.ts";
 
-export { expectsImplementationMutation };
+/** Roster-safe wrapper: sibling goals in an injected roster never make a task look like implementation. */
+export function expectsImplementationMutation(agent: string, task: string): boolean {
+	return expectsImplementationMutationRaw(agent, stripSiblingRosterSection(task));
+}
 
 const READ_ONLY_BUILTIN_TOOLS = new Set([
 	"read",
@@ -15,7 +19,8 @@ const READ_ONLY_BUILTIN_TOOLS = new Set([
 	"get_search_content",
 	"source_check",
 	"intercom",
-	"contact_supervisor",
+	"contact_agent",
+	"inbox",
 	"structured_output",
 ]);
 
@@ -98,12 +103,12 @@ export function validateImplementationToolContract(input: {
 	const declaredMutationToolsWereRemoved = requestedMutationTools.length > 0 && !hasBuiltinMutationTool(input.tools);
 	const configuredExtensionCapability = (input.configuredExtensions?.length ?? 0) > 0 && !declaredMutationToolsWereRemoved;
 	if (hasMutationToolCapability(input.tools, input.mcpDirectTools) || configuredExtensionCapability) return undefined;
-	const intent = classifyTaskMutationIntent(input.acceptanceRole === "writer" ? "worker" : input.agent, input.task);
+	const intent = classifyTaskMutationIntent(input.acceptanceRole === "writer" ? "worker" : input.agent, stripSiblingRosterSection(input.task));
 	if (intent.kind === "read-only") return undefined;
 	const writerTaskMayMutate = input.acceptanceRole === "writer"
 		? true
 		: isWriterRole(input.agent, input.acceptanceRole)
-			&& (taskMayMutate(input.task) || WRITER_DELIVERY_PATTERN.test(input.task));
+			&& (taskMayMutate(stripSiblingRosterSection(input.task)) || WRITER_DELIVERY_PATTERN.test(stripSiblingRosterSection(input.task)));
 	if (intent.kind !== "implementation" && !writerTaskMayMutate && !declaredMutationToolsWereRemoved) return undefined;
 	return `Agent '${input.agent}' was given an implementation task, but its tool allowlist has no mutation-capable tools. Add bash, edit, write, or another mutation-capable tool to the agent, or use a read-only task/agent.`;
 }
@@ -231,6 +236,8 @@ function reportsNoBetterChallengeChange(messages: Message[]): boolean {
 }
 
 export function evaluateCompletionMutationGuard(input: CompletionMutationGuardInput): CompletionMutationGuardResult {
+	// Sibling roster goals must never flip mutation-guard inference; normalize once.
+	input = { ...input, task: stripSiblingRosterSection(input.task) };
 	if (input.toolAvailabilityError && expectsImplementationMutation(input.agent, input.task)) {
 		return {
 			expectedMutation: true,

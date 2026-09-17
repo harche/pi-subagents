@@ -86,8 +86,8 @@ function replay() {
     mock.timers.tick(100);
     report.samples.push({ state, writes: writes - beforeWrites, bytes: bytes - beforeBytes, now: Date.now(), status: read() });
   };
-  const start = { type: "tool_execution_start", toolName: "contact_supervisor", toolCallId: "decision", args: { reason: "need_decision", message: "Choose" } };
-  const end = { type: "tool_execution_end", toolName: "contact_supervisor", toolCallId: "decision" };
+  const start = { type: "tool_execution_start", toolName: "contact_agent", toolCallId: "decision", args: { reason: "need_decision", message: "Choose" } };
+  const end = { type: "tool_execution_end", toolName: "contact_agent", toolCallId: "decision" };
   sample("unset");
   transition(1, { type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "working" }], stopReason: "tool_use" } });
   sample("active_long_running");
@@ -1284,14 +1284,14 @@ setTimeout(() => process.exit(90), 15000).unref();
 		await waitForAsyncResultFile(id);
 	});
 
-	it("bg_wait wakes when an async child is waiting on contact_supervisor", { skip: !isAsyncAvailable() ? "jiti not available" : undefined }, async () => {
+	it("bg_wait wakes when an async child is waiting on contact_agent", { skip: !isAsyncAvailable() ? "jiti not available" : undefined }, async () => {
 		const id = `async-supervisor-attention-${Date.now().toString(36)}`;
 		const replyReleasePath = path.join(tempDir, `${id}.reply`);
 		const finalReleasePath = path.join(tempDir, `${id}.final`);
 		mockPi.onCall({
 			steps: [
-				{ jsonl: [events.toolStart("contact_supervisor", { reason: "need_decision", message: "Need a decision" })] },
-				{ waitForPath: replyReleasePath, jsonl: [events.toolEnd("contact_supervisor"), events.toolResult("contact_supervisor", "**Reply from supervisor:**\nProceed")] },
+				{ jsonl: [events.toolStart("contact_agent", { reason: "need_decision", message: "Need a decision" })] },
+				{ waitForPath: replyReleasePath, jsonl: [events.toolEnd("contact_agent"), events.toolResult("contact_agent", "**Reply from supervisor:**\nProceed")] },
 				{ waitForPath: finalReleasePath, jsonl: [events.assistantMessage("Done")] },
 			],
 		});
@@ -1332,7 +1332,7 @@ setTimeout(() => process.exit(90), 15000).unref();
 			while (Date.now() < attentionDeadline && !fs.existsSync(resultPath)) {
 				if (fs.existsSync(statusPath)) {
 					const nextStatus = JSON.parse(fs.readFileSync(statusPath, "utf-8")) as AsyncStatusPayload;
-					if (nextStatus.currentTool === "contact_supervisor" && nextStatus.activityState === "needs_attention") {
+					if (nextStatus.currentTool === "contact_agent" && nextStatus.activityState === "needs_attention") {
 						statusDuringAttention = nextStatus;
 						break;
 					}
@@ -1362,8 +1362,8 @@ setTimeout(() => process.exit(90), 15000).unref();
 			assert.match(eventText, /"reason":"supervisor_request"/);
 			assert.equal(statusDuringAttention.activityState, "needs_attention");
 			assert.equal(statusDuringAttention.steps?.[0]?.activityState, "needs_attention");
-			assert.equal(statusDuringAttention.currentTool, "contact_supervisor");
-			assert.equal(statusDuringAttention.steps?.[0]?.currentTool, "contact_supervisor");
+			assert.equal(statusDuringAttention.currentTool, "contact_agent");
+			assert.equal(statusDuringAttention.steps?.[0]?.currentTool, "contact_agent");
 
 			const clearDeadline = Date.now() + 10_000;
 			let statusAfterReply: AsyncStatusPayload | undefined;

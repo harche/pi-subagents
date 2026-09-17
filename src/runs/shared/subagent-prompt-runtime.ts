@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { BeforeProviderRequestEvent, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { registerNativeSupervisorClient } from "../../intercom/native-supervisor-channel.ts";
+import { registerSiblingTools } from "../../intercom/sibling-tools.ts";
 import { permissionDecision } from "./permissions.ts";
 import type { SteerRequest } from "../background/control-channel.ts";
 import { RUNTIME_EXTENSION_ACK_EVENT, isRuntimeAcknowledgedExtensionId } from "./runtime-acknowledged-extensions.ts";
@@ -470,17 +470,17 @@ export default function registerSubagentPromptRuntime(pi: ExtensionAPI, config?:
 	const nestedRootRunId = inheritedNestedRouteOf(config)?.rootRunId;
 	if (typeof pi.registerTool === "function") registerWaitTool(pi, waitState, config.waitTool.enabled, undefined, config.waitTool.defaultTimeoutMs, { nestedRootRunId });
 	const supervisorMetadata = childSupervisorMetadata(config);
-	let nativeSupervisorClientRegistered = false;
-	const registerNativeSupervisorClientOnce = (): void => {
-		if (nativeSupervisorClientRegistered) return;
-		nativeSupervisorClientRegistered = true;
-		registerNativeSupervisorClient(pi, supervisorMetadata);
+	let siblingToolsRegistered = false;
+	const registerSiblingToolsOnce = (): void => {
+		if (siblingToolsRegistered) return;
+		siblingToolsRegistered = true;
+		registerSiblingTools(pi, supervisorMetadata, config);
 	};
 	const onRuntimeEvent = pi.on as unknown as (event: string, handler: (event: unknown, ctx?: ExtensionContext) => unknown) => void;
 	onRuntimeEvent("session_start", (_event: unknown, ctx?: ExtensionContext) => {
 		const sessionManager = (ctx as { sessionManager?: Parameters<typeof resolveCurrentSessionId>[0] } | undefined)?.sessionManager;
 		waitState.currentSessionId = sessionManager ? resolveCurrentSessionId(sessionManager) : null;
-		registerNativeSupervisorClientOnce();
+		registerSiblingToolsOnce();
 	});
 	onRuntimeEvent("agent_start", () => {
 		if (!config.requiredTools) return;
@@ -518,7 +518,7 @@ export default function registerSubagentPromptRuntime(pi: ExtensionAPI, config?:
 
 	onRuntimeEvent("before_agent_start", async (event: unknown) => {
 		if (!event || typeof event !== "object" || !("systemPrompt" in event) || typeof event.systemPrompt !== "string") return undefined;
-		registerNativeSupervisorClientOnce();
+		registerSiblingToolsOnce();
 		// The intercom target is a routing address and always wins; the display
 		// name (agent + task excerpt, computed by the parent at launch) only
 		// applies when the bridge is not addressing this child.

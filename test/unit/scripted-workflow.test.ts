@@ -11,6 +11,7 @@ import { workflowChildSummary } from "../../src/workflows/workflow-child-summary
 import { preflightWorkflowWorktrees } from "../../src/runs/foreground/subagent-executor.ts";
 import { runSetupCommand } from "../../src/runs/shared/worktree-setup-command.ts";
 import { claimRunFanoutBatch, createRunFanoutBudget, getRunFanoutBudgetSnapshot } from "../../src/runs/shared/run-fanout-budget.ts";
+import { buildSiblingRosterSection, stripSiblingRosterSection } from "../../src/intercom/sibling-roster.ts";
 
 function nextChildMessage(child: ChildProcess, timeoutMs = 15_000): Promise<Record<string, unknown>> {
 	return new Promise((resolve, reject) => {
@@ -1917,12 +1918,24 @@ describe("scripted workflow runtime", () => {
 		});
 
 		assert.deepEqual(result.value, { plan: "plan", built: ["build-api", "build-ui"], review: "review" });
-		assert.deepEqual(launches, [
+		// Base tasks survive roster injection byte-for-byte (strip helper, not ad-hoc split).
+		assert.deepEqual(launches.map(({ key, agent, worktree, task }) => ({
+			key, agent, worktree, task: stripSiblingRosterSection(task),
+		})), [
 			{ key: "plan", agent: "planner", task: "plan", worktree: true },
 			{ key: "build-api", agent: "worker", task: "plan:api", worktree: true },
 			{ key: "build-ui", agent: "worker", task: "plan:ui", worktree: true },
 			{ key: "review", agent: "reviewer", task: "build-api,build-ui", worktree: false },
 		]);
+	// Exact roster suffix: batch mates plus history, self excluded, key line present.
+	const apiTask = launches.find((l) => l.key === "build-api")?.task as string;
+	const expectedApiSuffix = "\n\n" + buildSiblingRosterSection([
+		{ key: "plan", agent: "planner", goal: "plan" },
+		{ key: "build-api", agent: "worker", goal: "plan:api" },
+		{ key: "build-ui", agent: "worker", goal: "plan:ui" },
+	], "build-api");
+	assert.ok(apiTask.endsWith(expectedApiSuffix));
+	assert.ok((launches.find((l) => l.key === "plan")?.task as string).indexOf("Sibling agents") === -1);
 	});
 
 	it("rejects legacy orchestration params in runs.run", async () => {
@@ -2515,8 +2528,50 @@ describe("scripted workflow runtime", () => {
 			},
 			async status(key) { return { key, ok: true, output: "ok", artifactPaths: [] }; },
 		});
-		assert.deepEqual(tasks, ["plan", "first output"]);
+		assert.equal(tasks.length, 2);
+		assert.equal(tasks[0], "plan");
+		// Sibling roster: the second sequential child sees the first as a peer.
+		// Base task must survive injection byte-for-byte; the suffix must match
+		// the single-source builder exactly (catches double injection + drift).
+		assert.equal(stripSiblingRosterSection(tasks[1]), "first output");
+		const expectedSuffix = "\n\n" + buildSiblingRosterSection(
+			[{ key: "first", agent: "worker", goal: "plan" }],
+			"second",
+		);
+		assert.ok((tasks[1] as string).endsWith(expectedSuffix));
 		assert.equal(result.value, "second output");
+	});
+
+	it("honors siblingRoster:false as both receive- and send-side opt-out", async () => {
+		const tasks: Array<{ key: string; task: unknown }> = [];
+		const result = await runWorkflowScript({
+			script: `
+				const out = await runs.all([
+					{ key: "shy", agent: "worker", task: "quiet", siblingRoster: false },
+					{ key: "open", agent: "worker", task: "loud" },
+					{ key: "third", agent: "worker", task: "extra" }
+				]);
+				return out.map((r) => r.key);
+			`,
+			timeoutMs: 2_000,
+			async launch(key, params) {
+				tasks.push({ key, task: params.task });
+				return { key, ok: true, output: key, artifactPaths: [], results: [] };
+			},
+			async status(key) { return { key, ok: true, output: "ok", artifactPaths: [] }; },
+		});
+		assert.deepEqual(result.value, ["shy", "open", "third"]);
+		// Opted-out child: raw task, no roster.
+		assert.equal(tasks.find((l) => l.key === "shy")?.task, "quiet");
+		// Peer: no trace of the opted-out child anywhere in its task.
+		const openTask = tasks.find((l) => l.key === "open")?.task as string;
+		assert.equal(stripSiblingRosterSection(openTask), "loud");
+		assert.doesNotMatch(openTask, /shy/);
+		assert.match(openTask, /- third \(worker\): extra/);
+		assert.match(openTask, /Your sibling key: open/);
+		const thirdTask = tasks.find((l) => l.key === "third")?.task as string;
+		assert.doesNotMatch(thirdTask, /shy/);
+		assert.match(thirdTask, /- open \(worker\): loud/);
 	});
 
 	it("accepts an awaited native Promise combinator over launches", async () => {
